@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Distribution / packaging / zip archives
+*.zip
+OpenGeoDataFR_*.zip
+
+# Local cache & temporary files
+cache/
+*.tmp
+*.log
+
+# IDE & editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Agent metadata
+.agents/
