@@ -896,44 +896,76 @@ class ImportManager:
 
                 # Découpage du fond de carte raster par masque de polygone inversé
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
-                    self._create_and_add_wms_mask(item, territory_filter)
+                    self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
 
                 return True, f"Flux WMS '{item.title}' [couche {layer_name}, {crs_code}] ajouté avec succès."
 
         return False, f"Impossible de se connecter au flux WMS : {clean_url}"
 
-    def _create_and_add_wms_mask(self, item, territory_filter):
+    def _create_and_add_wms_mask(self, item, territory_filter, raster_layer=None):
         """
-        Crée une couche vectorielle de délimitation du périmètre territorial (Contour net avec remplissage transparent)
-        positionnée au-dessus du fond WMS/Raster pour matérialiser exactement le territoire sélectionné sans masquer les données.
+        Crée une couche vectorielle de découpage par masque en polygone inversé (fond blanc + contour rouge net)
+        positionnée directement au-dessus du fond WMS/Raster pour masquer l'extérieur et ne laisser visible
+        que l'emprise du territoire sélectionné.
         """
         try:
             from qgis.core import (
-                QgsVectorLayer, QgsFeature,
-                QgsSingleSymbolRenderer, QgsFillSymbol
+                QgsVectorLayer, QgsFeature, QgsInvertedPolygonRenderer,
+                QgsSingleSymbolRenderer, QgsFillSymbol, QgsCoordinateTransform,
+                QgsCoordinateReferenceSystem
             )
             terr_geom, terr_crs_str = self._get_territory_geometry(territory_filter)
             if not terr_geom or terr_geom.isEmpty():
                 return
 
-            contour_name = f"Périmètre - {item.title}"
-            contour_layer = QgsVectorLayer(f"Polygon?crs={terr_crs_str}", contour_name, "memory")
-            dp = contour_layer.dataProvider()
+            # Utilise la projection du raster ou du projet pour éviter toute distorsion
+            dest_crs_str = "EPSG:3857"
+            if raster_layer and raster_layer.crs().isValid():
+                dest_crs_str = raster_layer.crs().authid()
+            elif QgsProject.instance().crs().isValid():
+                dest_crs_str = QgsProject.instance().crs().authid()
+
+            src_crs = QgsCoordinateReferenceSystem(terr_crs_str)
+            dst_crs = QgsCoordinateReferenceSystem(dest_crs_str)
+
+            geom_transformed = QgsGeometry(terr_geom)
+            if src_crs.isValid() and dst_crs.isValid() and src_crs != dst_crs:
+                xform = QgsCoordinateTransform(src_crs, dst_crs, QgsProject.instance())
+                geom_transformed.transform(xform)
+
+            mask_name = f"Masque Découpage - {item.title}"
+            mask_layer = QgsVectorLayer(f"Polygon?crs={dest_crs_str}", mask_name, "memory")
+            dp = mask_layer.dataProvider()
             feat = QgsFeature()
-            feat.setGeometry(terr_geom)
+            feat.setGeometry(geom_transformed)
             dp.addFeatures([feat])
-            contour_layer.updateExtents()
+            mask_layer.updateExtents()
 
             fill_sym = QgsFillSymbol.createSimple({
-                'color': '0,0,0,0',              # Remplissage transparent (ne masque rien)
-                'outline_color': '217,4,41,255', # Ligne de démarcation rouge vif élégante
+                'color': '255,255,255,255',      # Masque blanc opaque à l'extérieur
+                'outline_color': '217,4,41,255', # Contour rouge vif élégant
                 'outline_width': '0.8',
                 'outline_style': 'solid'
             })
-            contour_layer.setRenderer(QgsSingleSymbolRenderer(fill_sym))
-            QgsProject.instance().addMapLayer(contour_layer)
+            inv_renderer = QgsInvertedPolygonRenderer()
+            inv_renderer.setEmbeddedRenderer(QgsSingleSymbolRenderer(fill_sym))
+            mask_layer.setRenderer(inv_renderer)
+
+            if raster_layer:
+                root = QgsProject.instance().layerTreeRoot()
+                raster_node = root.findLayer(raster_layer.id())
+                if raster_node:
+                    parent_group = raster_node.parent() or root
+                    idx = parent_group.children().index(raster_node)
+                    QgsProject.instance().addMapLayer(mask_layer, False)
+                    parent_group.insertLayer(idx, mask_layer)
+                else:
+                    QgsProject.instance().addMapLayer(mask_layer)
+            else:
+                QgsProject.instance().addMapLayer(mask_layer)
+
         except Exception as mask_err:
-            QgsMessageLog.logMessage(f"Erreur création périmètre WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Erreur création masque WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
 
     def _import_wfs_layer(self, item, target_crs=None, territory_filter=None, progress_callback=None):
         try:
