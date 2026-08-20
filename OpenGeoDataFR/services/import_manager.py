@@ -532,25 +532,6 @@ class ImportManager:
             # Application de la Symbologie Officielle Automatique
             self._apply_automatic_symbology(target_for_filters, item)
 
-        # Pour les couches Raster / WMS : centrage de la carte sur l'emprise du filtre territorial
-        elif isinstance(layer, QgsRasterLayer) or isinstance(reprojected_layer, QgsRasterLayer):
-            if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
-                try:
-                    terr_geom, terr_crs_str = self._get_territory_geometry(territory_filter)
-                    if terr_geom and not terr_geom.isEmpty():
-                        from qgis.utils import iface
-                        if iface and iface.mapCanvas():
-                            bbox = terr_geom.boundingBox()
-                            terr_crs = QgsCoordinateReferenceSystem(terr_crs_str)
-                            canvas_crs = iface.mapCanvas().mapSettings().destinationCrs()
-                            if terr_crs.isValid() and canvas_crs.isValid() and terr_crs != canvas_crs:
-                                xform = QgsCoordinateTransform(terr_crs, canvas_crs, QgsProject.instance())
-                                bbox = xform.transformBoundingBox(bbox)
-                            iface.mapCanvas().setExtent(bbox)
-                            iface.mapCanvas().refresh()
-                except Exception as raster_ext_err:
-                    QgsMessageLog.logMessage(f"Centrage WMS sur le territoire: {raster_ext_err}", "OpenGeoDataFR", Qgis.Warning)
-
         return reprojected_layer
 
     def _import_file_resource(self, item, target_crs=None, territory_filter=None, progress_callback=None):
@@ -923,37 +904,36 @@ class ImportManager:
 
     def _create_and_add_wms_mask(self, item, territory_filter):
         """
-        Crée une couche de masque cartographique en polygone inversé positionnée au-dessus du fond WMS/Raster
-        pour masquer l'extérieur et ne laisser visible que le territoire filtré.
+        Crée une couche vectorielle de délimitation du périmètre territorial (Contour net avec remplissage transparent)
+        positionnée au-dessus du fond WMS/Raster pour matérialiser exactement le territoire sélectionné sans masquer les données.
         """
         try:
             from qgis.core import (
-                QgsVectorLayer, QgsFeature, QgsInvertedPolygonRenderer,
+                QgsVectorLayer, QgsFeature,
                 QgsSingleSymbolRenderer, QgsFillSymbol
             )
             terr_geom, terr_crs_str = self._get_territory_geometry(territory_filter)
             if not terr_geom or terr_geom.isEmpty():
                 return
 
-            mask_name = f"Masque - {item.title}"
-            mask_layer = QgsVectorLayer(f"Polygon?crs={terr_crs_str}", mask_name, "memory")
-            dp = mask_layer.dataProvider()
+            contour_name = f"Périmètre - {item.title}"
+            contour_layer = QgsVectorLayer(f"Polygon?crs={terr_crs_str}", contour_name, "memory")
+            dp = contour_layer.dataProvider()
             feat = QgsFeature()
             feat.setGeometry(terr_geom)
             dp.addFeatures([feat])
-            mask_layer.updateExtents()
+            contour_layer.updateExtents()
 
             fill_sym = QgsFillSymbol.createSimple({
-                'color': '255,255,255,255',
-                'outline_color': '60,60,60,255',
-                'outline_width': '0.6'
+                'color': '0,0,0,0',              # Remplissage transparent (ne masque rien)
+                'outline_color': '217,4,41,255', # Ligne de démarcation rouge vif élégante
+                'outline_width': '0.8',
+                'outline_style': 'solid'
             })
-            inv_renderer = QgsInvertedPolygonRenderer()
-            inv_renderer.setEmbeddedRenderer(QgsSingleSymbolRenderer(fill_sym))
-            mask_layer.setRenderer(inv_renderer)
-            QgsProject.instance().addMapLayer(mask_layer)
+            contour_layer.setRenderer(QgsSingleSymbolRenderer(fill_sym))
+            QgsProject.instance().addMapLayer(contour_layer)
         except Exception as mask_err:
-            QgsMessageLog.logMessage(f"Erreur création masque WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Erreur création périmètre WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
 
     def _import_wfs_layer(self, item, target_crs=None, territory_filter=None, progress_callback=None):
         try:

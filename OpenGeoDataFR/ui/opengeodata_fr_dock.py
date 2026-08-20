@@ -30,6 +30,12 @@ from ..clients.geoplateforme_client import GeoplateformeClient
 from ..services.import_manager import ImportManager
 from ..services.preset_library import PresetLibrary
 from ..services.export_service import ExportService
+from qgis.core import (
+    QgsProject,
+    QgsRectangle,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform
+)
 from .territory_filter_dialog import TerritoryFilterDialog
 from .import_option_dialog import ImportFilterOptionDialog
 from . import qt_compat
@@ -199,7 +205,7 @@ class SearchWorker(QThread):
 class ImportWorker(QThread):
     """Worker multithreadé exécutant l'importation et le téléchargement en arrière-plan sans JAMAIS figer QGIS."""
 
-    import_finished = pyqtSignal(bool, str)
+    import_finished = pyqtSignal(bool, str, object)
     progress_updated = pyqtSignal(str)
 
     def __init__(self, import_manager, item, as_wms, target_crs, territory_filter):
@@ -222,9 +228,20 @@ class ImportWorker(QThread):
                 territory_filter=self.territory_filter,
                 progress_callback=report_progress
             )
-            self.import_finished.emit(success, msg)
+
+            extent_info = None
+            if success and self.territory_filter and str(self.territory_filter).lower() not in ("france", "toutes les échelles", "all"):
+                try:
+                    terr_geom, terr_crs_str = self.import_manager._get_territory_geometry(self.territory_filter)
+                    if terr_geom and not terr_geom.isEmpty():
+                        bb = terr_geom.boundingBox()
+                        extent_info = (bb.xMinimum(), bb.yMinimum(), bb.xMaximum(), bb.yMaximum(), terr_crs_str)
+                except Exception:
+                    pass
+
+            self.import_finished.emit(success, msg, extent_info)
         except Exception as e:
-            self.import_finished.emit(False, f"Erreur lors de l'importation : {e}")
+            self.import_finished.emit(False, f"Erreur lors de l'importation : {e}", None)
 
 
 class OpenGeoDataFRDock(QDockWidget):
@@ -1053,11 +1070,31 @@ class OpenGeoDataFRDock(QDockWidget):
     def on_import_progress(self, msg):
         self.lbl_status.setText(msg)
 
-    def on_import_finished(self, success, msg):
+    def on_import_finished(self, success, msg, extent_info=None):
         self.progress_bar.setVisible(False)
         if success:
             self.lbl_status.setText(f"Succès : {msg}")
             if self.iface and self.iface.mapCanvas():
+                if extent_info:
+                    try:
+                        xmin, ymin, xmax, ymax, src_crs_str = extent_info
+                        source_crs = QgsCoordinateReferenceSystem(src_crs_str)
+                        canvas_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+                        if not canvas_crs.isValid():
+                            canvas_crs = QgsProject.instance().crs()
+                        if not canvas_crs.isValid():
+                            canvas_crs = QgsCoordinateReferenceSystem("EPSG:2154")
+
+                        bbox = QgsRectangle(xmin, ymin, xmax, ymax)
+                        if source_crs.isValid() and canvas_crs.isValid() and source_crs != canvas_crs:
+                            xform = QgsCoordinateTransform(source_crs, canvas_crs, QgsProject.instance())
+                            bbox = xform.transformBoundingBox(bbox)
+
+                        # Marge de 5% pour un cadrage confortable
+                        bbox.grow(bbox.width() * 0.05)
+                        self.iface.mapCanvas().setExtent(bbox)
+                    except Exception as ext_err:
+                        print(f"[OpenGeoDataFR] Erreur centrage canvas: {ext_err}")
                 self.iface.mapCanvas().refresh()
         else:
             self.lbl_status.setText(f"Erreur : {msg}")
