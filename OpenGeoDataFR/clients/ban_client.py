@@ -133,3 +133,6 @@ class BanClient:
             print(f"[OpenGeoDataFR] Erreur BanClient (communes search): {e}")
 
         return []
+
+
+BANClient = BanClient

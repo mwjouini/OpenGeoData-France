@@ -33,6 +33,11 @@ class DataItem:
         self.service_type = service_type
         self.extra = extra if extra is not None else {}
 
+    @property
+    def category(self):
+        """Catégorie thématique de la ressource."""
+        return self.extra.get('category', '') if hasattr(self, 'extra') and self.extra else ''
+
     def __repr__(self):
         return f"<DataItem [{self.source}] {self.title} ({self.data_type}) - CRS:{self.crs} - Date:{self.date}>"
 
