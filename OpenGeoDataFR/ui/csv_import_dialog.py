@@ -268,3 +268,7 @@ class CSVImportDialog(QDialog):
             self.selected_uri = f"file:///{escaped_filepath}?delimiter={encoded_delim}&useHeader=yes&type=csv&geometry=none&encoding={encoding}"
 
         self.accept()
+
+
+# Alias de compatibilité
+CsvImportDialog = CSVImportDialog

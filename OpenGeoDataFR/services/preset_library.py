@@ -330,19 +330,19 @@ class PresetLibrary:
             # =========================================================================
             DataItem(
                 item_id="preset_pprn_georisques",
-                title="Plans de Prévention des Risques Naturels PPRN (Géorisques)",
+                title="Plans de Prévention des Risques Naturels PPRN (Géorisques / GASPAR)",
                 source="data.gouv.fr (Géorisques / BRGM)",
-                data_type="file_vector",
+                data_type="table",
                 territory="France",
-                scale="france",
+                scale="commune",
                 crs="EPSG:4326",
-                date="2025",
-                url="https://catalogue.sigloire.fr/api/data/54a222d3-2332-4412-ad1f-95fd9b573730?srs=EPSG:4326",
+                date="2025 (Temps Réel)",
+                url="https://georisques.gouv.fr/api/v1/gaspar/pprn",
                 service_type="HTTP",
                 extra={
-                    'format': 'GEOJSON',
+                    'format': 'JSON API',
                     'category': 'risques',
-                    'description': 'Périmètres et zonages réglementaires des PPRN (inondation, mouvement de terrain, séisme)'
+                    'description': 'Base nationale GASPAR des Plans de Prévention des Risques Naturels (inondation, argiles, séisme)'
                 }
             ),
             DataItem(

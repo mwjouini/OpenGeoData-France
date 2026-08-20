@@ -62,14 +62,19 @@ Ce document récapitule l'architecture, l'historique complet des développements
      - *Annuler*.
 2. **Extraction des contours réels multi-communes** :
    - Utilisation de `geometry=contour` sur l'API GeoAPI (`geo.api.gouv.fr`).
-   - Parsing robuste via `QgsJsonUtils.geometryFromGeoJson(json_str)` (résolution du bug `fromFromJson`).
-   - Fusion géométrique `QgsGeometry.unaryUnion` pour les listes de codes multiples (ex : 14 communes de l'Oise).
+   - Parsing robuste via `QgsJsonUtils.geometryFromGeoJson(json_str)`.
+   - Fusion géométrique `QgsGeometry.unaryUnion` pour les listes de codes multiples (ex : communes de l'Oise).
 3. **Découpage vectoriel haute performance** :
    - Utilisation de `QgsFeatureRequest().setFilterRect(terr_geom.boundingBox())` pour filtrer instantanément les entités via l'index spatial R-Tree.
    - Découpe géométrique par `geom.intersection(terr_geom)` créant une couche mémoire propre `[Nom] (Découpé)`.
-4. **Détourage des Fonds IGN / WMS (Polygone inversé)** :
-   - Génération automatique d'une couche de masque `Masque - [Nom]` en polygone inversé (`QgsInvertedPolygonRenderer`) superposée au flux WMS.
-   - Le fond IGN n'apparaît qu'à l'intérieur du contour de la zone sélectionnée.
+4. **Matérialisation du Périmètre des Fonds IGN / WMS & Centrage Sécurisé** :
+   - Résolution du problème d'écran bleu : exécution du centrage de la caméra exclusivement sur le thread principal (GUI) dans `on_import_finished`.
+   - Reprojection dynamique de l'emprise du territoire dans le CRS actif du projet (`EPSG:3857`, `EPSG:2154`) avec marge de 5%.
+   - Génération d'une couche vectorielle de délimitation `Périmètre - [Nom]` (remplissage 100% transparent, contour rouge fin 0.8 mm) qui met en valeur le territoire sélectionné sans masquer aucune donnée.
+5. **Résolution du point d'accès GeoAPI pour les communes de région** :
+   - Correction de l'URL dans `TerritoryFilterDialog` : `/communes?codeRegion={code}&fields=nom,code`.
+6. **Mise à jour des Presets vers les API actives** :
+   - `preset_pprn_georisques` mis à jour vers l'API officielle nationale GASPAR (`https://georisques.gouv.fr/api/v1/gaspar/pprn`).
 
 ---
 

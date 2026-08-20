@@ -223,7 +223,7 @@ class TerritoryFilterDialog(QDialog):
         elif dep_code:
             url = f"{self.GEO_API_URL}/departements/{dep_code}/communes?fields=nom,code"
         elif region_code:
-            url = f"{self.GEO_API_URL}/regions/{region_code}/communes?fields=nom,code"
+            url = f"{self.GEO_API_URL}/communes?codeRegion={region_code}&fields=nom,code"
 
         if not url:
             return
