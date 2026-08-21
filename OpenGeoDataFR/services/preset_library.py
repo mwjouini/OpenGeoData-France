@@ -187,6 +187,25 @@ class PresetLibrary:
                     'description': 'Parcelles cadastrales vectorielles complètes de la commune de Beauvais'
                 }
             ),
+            DataItem(
+                item_id="preset_bdtopo_batiments",
+                title="Bâtiments & Hauteurs BD TOPO (IGN)",
+                source="GéoPlateforme IGN",
+                data_type="wfs",
+                territory="France",
+                scale="commune",
+                crs="EPSG:4326",
+                date="2025 (IGN)",
+                url="https://data.geopf.fr/wfs/ows",
+                service_type="WFS",
+                extra={
+                    'layer_name': 'BDTOPO_V3:batiment',
+                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
+                    'category': 'batiment',
+                    'format': 'Flux WFS',
+                    'description': '50 millions de bâtiments de la BD TOPO IGN avec hauteur réelle, usage, nombre d\'étages et identifiant unique'
+                }
+            ),
 
             # =========================================================================
             # 3. URBANISME & FONCIER (GPU - Géoportail de l'Urbanisme)

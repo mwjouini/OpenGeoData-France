@@ -30,6 +30,7 @@ from ..clients.geoplateforme_client import GeoplateformeClient
 from ..services.import_manager import ImportManager
 from ..services.preset_library import PresetLibrary
 from ..services.export_service import ExportService
+from ..services.nlp_search_engine import NLPSearchEngine
 from qgis.core import (
     QgsProject,
     QgsRectangle,
@@ -251,6 +252,8 @@ class OpenGeoDataFRDock(QDockWidget):
         super().__init__(parent)
         self.iface = iface
         self.import_manager = ImportManager()
+        self.nlp_engine = NLPSearchEngine(all_presets=PresetLibrary.get_presets())
+        self.last_nlp_res = None
         self.all_raw_results = []
         self.displayed_results = []
         self.current_selected_item = None
@@ -702,6 +705,17 @@ class OpenGeoDataFRDock(QDockWidget):
             self.lbl_status.setText("Veuillez saisir un terme de recherche ou un territoire.")
             return
 
+        # Analyse sémantique en langage naturel (NLP local)
+        self.last_nlp_res = self.nlp_engine.parse(query) if query else None
+
+        if self.last_nlp_res and self.last_nlp_res.has_territory() and not territory_val:
+            self.txt_territory.setText(self.last_nlp_res.territory_code)
+            territory_val = self.last_nlp_res.territory_code
+
+        effective_query = query
+        if self.last_nlp_res and self.last_nlp_res.search_keywords:
+            effective_query = self.last_nlp_res.search_keywords
+
         active_sources = {
             'admin': self.chk_admin.isChecked(),
             'gpu': self.chk_gpu.isChecked(),
@@ -732,10 +746,13 @@ class OpenGeoDataFRDock(QDockWidget):
 
         self.btn_search.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.lbl_status.setText("Recherche rapide parallèle en cours...")
+        if self.last_nlp_res and self.last_nlp_res.explanation:
+            self.lbl_status.setText(f"Analyse IA : {self.last_nlp_res.explanation}...")
+        else:
+            self.lbl_status.setText("Recherche rapide parallèle en cours...")
 
         self.search_worker = SearchWorker(
-            query=query,
+            query=effective_query,
             active_sources=active_sources,
             scale_filter=scale_key,
             territory_filter=territory_val
@@ -748,8 +765,26 @@ class OpenGeoDataFRDock(QDockWidget):
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
 
-        self.all_raw_results = results
+        combined_results = []
+        seen_ids = set()
+
+        # Priorité aux couches identifiées par l'analyse sémantique
+        if self.last_nlp_res and self.last_nlp_res.has_presets():
+            for p in self.last_nlp_res.matched_presets:
+                if p.id not in seen_ids:
+                    combined_results.append(p)
+                    seen_ids.add(p.id)
+
+        for r in results:
+            if r.id not in seen_ids:
+                combined_results.append(r)
+                seen_ids.add(r.id)
+
+        self.all_raw_results = combined_results if combined_results else results
         self.apply_post_search_filters()
+
+        if self.last_nlp_res and self.last_nlp_res.explanation:
+            self.lbl_status.setText(f"Intention : {self.last_nlp_res.explanation}")
 
     def apply_post_search_filters(self):
         if not self.all_raw_results:

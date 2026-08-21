@@ -76,6 +76,15 @@ Ce document récapitule l'architecture, l'historique complet des développements
 6. **Mise à jour des Presets vers les API actives** :
    - `preset_pprn_georisques` mis à jour vers l'API officielle nationale GASPAR (`https://georisques.gouv.fr/api/v1/gaspar/pprn`).
 
+### E. Moteur de Recherche Sémantique NLP Local (100% Gratuit & Autonome)
+1. **Module `NLPSearchEngine` (`services/nlp_search_engine.py`)** :
+   - Moteur d'analyse du langage naturel en pur Python, sans aucun modèle payant ni clé API externe.
+   - **Reconnaissance d'entités territoriales (NER)** : Détecte les codes postaux, numéros et noms des 101 départements, 18 régions et résout les 35 000 communes françaises via GeoAPI en temps réel.
+   - **Classification d'intentions multi-thématiques** : Détecte les thèmes demandés (*Cadastre, Bâtiments, PLU, Mobilités, Risques, Environnement, Énergie, Fonds IGN*) et résout les requêtes multi-couches (ex : *"parcelles et plu à Beauvais"*).
+   - **Intégration transparente dans l'interface** : Pré-remplit automatiquement le filtre territorial et classe les couches recommandées au sommet des résultats.
+2. **Nouveau Preset Officiel "BD TOPO Bâtiments & Hauteurs 3D (IGN)"** :
+   - Accès direct aux 50 millions de bâtiments de l'IGN avec hauteur réelle au faîtage, nombre d'étages, typologie d'usage et identifiant unique `cleabs`.
+
 ---
 
 ## 4. Structure de l'arborescence du code
