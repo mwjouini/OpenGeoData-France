@@ -85,6 +85,16 @@ Ce document récapitule l'architecture, l'historique complet des développements
 2. **Nouveau Preset Officiel "BD TOPO Bâtiments & Hauteurs 3D (IGN)"** :
    - Accès direct aux 50 millions de bâtiments de l'IGN avec hauteur réelle au faîtage, nombre d'étages, typologie d'usage et identifiant unique `cleabs`.
 
+### F. Prévisualisation en Temps Réel & Sécurisation Anti-Table Vide
+1. **Prévisualisation en Temps Réel (3 Onglets dans l'Inspecteur)** :
+   - **Onglet 1 `Fiche & Métadonnées`** : Métadonnées exhaustives (Source, Territoire, CRS, Taille, Date, Licence) avec boutons d'action.
+   - **Onglet 2 `Aperçu Carte` (Mini-SIG interactif)** : Intègre un `QgsMapCanvas` avec outils de navigation (Pan, Zoom+, Zoom-, Vue globale) permettant de visualiser instantanément les couches WMS, XYZ et vecteurs avant import.
+   - **Onglet 3 `Aperçu Données` (Tableau)** : `QTableWidget` affichant en temps réel les 25 premières lignes et les colonnes des fichiers tabulaires (CSV, TSV, GeoJSON) avec détection automatique du séparateur.
+2. **Sécurisation Anti-Table Vide (Gestion des Projections et Filtres)** :
+   - **Réinitialisation automatique si 0 résultat par attribut** : Si `setSubsetString` ne renvoie aucune entité (nom de champ ou code différent), la clause est réinitialisée à blanc et bascule automatiquement vers le découpage spatial géométrique.
+   - **Découpage spatial géométrique robuste** : Reprojection systématique du polygone de découpage (`terr_geom`) dans le CRS de la couche (`EPSG:2154`, `EPSG:4326`, `EPSG:3857`), évitant tout échec d'intersection d'échelles.
+   - **Préservation des données** : Si aucune entité n'est contenue dans le périmètre territorial exact, la couche complète d'origine est conservée au lieu de générer une table vide.
+
 ---
 
 ## 4. Structure de l'arborescence du code

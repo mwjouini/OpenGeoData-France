@@ -17,10 +17,25 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QGroupBox, QProgressBar, QMessageBox, QComboBox, QFileDialog, QDialog, QScrollArea, QFrame,
-    QCompleter, QApplication, QSplitter, QTextEdit, QButtonGroup
+    QCompleter, QApplication, QSplitter, QTextEdit, QButtonGroup, QTabWidget, QToolButton
 )
 from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QMutex, QUrl
 from qgis.PyQt.QtGui import QIcon, QPixmap, QFont, QDesktopServices, QColor
+
+from qgis.gui import QgsMapCanvas, QgsMapToolPan, QgsMapToolZoom
+from qgis.core import (
+    QgsProject,
+    QgsRectangle,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsRasterLayer,
+    QgsVectorLayer,
+    QgsGeometry,
+    QgsFeature,
+    QgsFillSymbol,
+    QgsSingleSymbolRenderer,
+    QgsInvertedPolygonRenderer
+)
 
 from ..clients.data_gouv_client import DataGouvClient
 from ..clients.cadastre_client import CadastreClient
@@ -31,12 +46,7 @@ from ..services.import_manager import ImportManager
 from ..services.preset_library import PresetLibrary
 from ..services.export_service import ExportService
 from ..services.nlp_search_engine import NLPSearchEngine
-from qgis.core import (
-    QgsProject,
-    QgsRectangle,
-    QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform
-)
+from ..utils.ssl_helper import fetch_url_bytes
 from .territory_filter_dialog import TerritoryFilterDialog
 from .import_option_dialog import ImportFilterOptionDialog
 from . import qt_compat
@@ -245,6 +255,67 @@ class ImportWorker(QThread):
             self.import_finished.emit(False, f"Erreur lors de l'importation : {e}", None)
 
 
+class TabularPreviewWorker(QThread):
+    """Worker multithreadé extrayant les premières lignes d'un fichier tabulaire / GeoJSON pour prévisualisation en temps réel."""
+
+    preview_ready = pyqtSignal(list, list, str)
+    preview_failed = pyqtSignal(str)
+
+    def __init__(self, url, max_rows=25):
+        super().__init__()
+        self.url = url
+        self.max_rows = max_rows
+
+    def run(self):
+        try:
+            import csv
+            import io
+            import json
+            from ..utils.ssl_helper import fetch_url_bytes
+
+            data = fetch_url_bytes(self.url, timeout_ms=6000)
+            text = data.decode('utf-8-sig', errors='replace')
+
+            # 1. GeoJSON detection
+            if text.strip().startswith('{') or text.strip().startswith('['):
+                try:
+                    js = json.loads(text)
+                    features = js.get('features', []) if isinstance(js, dict) else (js if isinstance(js, list) else [])
+                    if features:
+                        headers = list(features[0].get('properties', {}).keys())[:20]
+                        rows = []
+                        for f in features[:self.max_rows]:
+                            props = f.get('properties', {})
+                            rows.append([str(props.get(h, '')) for h in headers])
+                        self.preview_ready.emit(headers, rows, f"Aperçu GeoJSON : {len(rows)} premières entités (sur {len(features)})")
+                        return
+                except Exception:
+                    pass
+
+            # 2. CSV / Tabular detection
+            first_line = text.split('\n')[0]
+            delimiters = [';', ',', '\t', '|']
+            counts = {d: first_line.count(d) for d in delimiters}
+            best_del = max(counts, key=counts.get) if max(counts.values()) > 0 else ','
+
+            reader = csv.reader(io.StringIO(text), delimiter=best_del)
+            rows = []
+            for i, r in enumerate(reader):
+                if i > self.max_rows:
+                    break
+                if r:
+                    rows.append(r)
+
+            if rows:
+                headers = rows[0]
+                data_rows = rows[1:]
+                self.preview_ready.emit(headers, data_rows, f"Aperçu CSV (séparateur '{best_del}') : {len(data_rows)} premières lignes")
+            else:
+                self.preview_failed.emit("Fichier tabulaire vide ou illisible.")
+        except Exception as e:
+            self.preview_failed.emit(f"Impossible de charger l'aperçu : {e}")
+
+
 class OpenGeoDataFRDock(QDockWidget):
     """Dock Widget principal pour la recherche, la projection, l'export et l'import de données géographiques françaises."""
 
@@ -259,6 +330,11 @@ class OpenGeoDataFRDock(QDockWidget):
         self.current_selected_item = None
         self.search_worker = None
         self.import_worker = None
+        self.tabular_worker = None
+        self.preview_layers = []
+        self.map_tool_pan = None
+        self.map_tool_zoom_in = None
+        self.map_tool_zoom_out = None
         self.active_category = "all"
 
         self.setWindowTitle("OpenGeoData France")
@@ -530,28 +606,43 @@ class OpenGeoDataFRDock(QDockWidget):
 
         splitter.addWidget(table_container)
 
-        # Volet d'inspection des métadonnées
-        self.inspector_panel = QGroupBox("Fiche & Métadonnées")
-        self.inspector_panel.setMinimumWidth(260)
+        # Volet d'inspection et de prévisualisation en temps réel (3 Onglets)
+        self.inspector_panel = QGroupBox("Inspecteur & Prévisualisation")
+        self.inspector_panel.setMinimumWidth(320)
         inspector_layout = QVBoxLayout(self.inspector_panel)
-        inspector_layout.setContentsMargins(8, 8, 8, 8)
+        inspector_layout.setContentsMargins(6, 6, 6, 6)
         inspector_layout.setSpacing(6)
+
+        self.insp_tabs = QTabWidget()
+        self.insp_tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #d0d0d0; background: #ffffff; border-radius: 3px; }
+            QTabBar::tab { background: #f0f0f0; border: 1px solid #d0d0d0; padding: 5px 10px; margin-right: 2px; border-top-left-radius: 3px; border-top-right-radius: 3px; font-weight: bold; font-size: 11px; }
+            QTabBar::tab:selected { background: #ffffff; border-bottom-color: #ffffff; color: #1a73e8; }
+        """)
+
+        # =========================================================================
+        # ONGLET 1 : FICHE & MÉTADONNÉES
+        # =========================================================================
+        tab_fiche = QWidget()
+        tab_fiche_layout = QVBoxLayout(tab_fiche)
+        tab_fiche_layout.setContentsMargins(6, 6, 6, 6)
+        tab_fiche_layout.setSpacing(6)
 
         self.lbl_insp_title = QLabel("Sélectionnez une couche")
         self.lbl_insp_title.setWordWrap(True)
         self.lbl_insp_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1a73e8;")
-        inspector_layout.addWidget(self.lbl_insp_title)
+        tab_fiche_layout.addWidget(self.lbl_insp_title)
 
         self.lbl_insp_meta = QLabel("Aucune sélection")
         self.lbl_insp_meta.setWordWrap(True)
         self.lbl_insp_meta.setStyleSheet("font-size: 11px; color: #3c4043;")
-        inspector_layout.addWidget(self.lbl_insp_meta)
+        tab_fiche_layout.addWidget(self.lbl_insp_meta)
 
         self.txt_insp_desc = QTextEdit()
         self.txt_insp_desc.setReadOnly(True)
         self.txt_insp_desc.setPlaceholderText("Description détaillée de la ressource...")
         self.txt_insp_desc.setStyleSheet("background-color: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px; font-size: 11px;")
-        inspector_layout.addWidget(self.txt_insp_desc)
+        tab_fiche_layout.addWidget(self.txt_insp_desc)
 
         insp_buttons_layout = QVBoxLayout()
         insp_buttons_layout.setSpacing(4)
@@ -573,7 +664,86 @@ class OpenGeoDataFRDock(QDockWidget):
         insp_actions_row.addWidget(self.btn_insp_copy)
 
         insp_buttons_layout.addLayout(insp_actions_row)
-        inspector_layout.addLayout(insp_buttons_layout)
+        tab_fiche_layout.addLayout(insp_buttons_layout)
+        self.insp_tabs.addTab(tab_fiche, "Fiche")
+
+        # =========================================================================
+        # ONGLET 2 : APERÇU CARTE (MINI-SIG INTÉGRÉ)
+        # =========================================================================
+        tab_map = QWidget()
+        tab_map_layout = QVBoxLayout(tab_map)
+        tab_map_layout.setContentsMargins(4, 4, 4, 4)
+        tab_map_layout.setSpacing(4)
+
+        map_toolbar = QHBoxLayout()
+        map_toolbar.setSpacing(4)
+
+        btn_pan = QPushButton("✋ Pan")
+        btn_pan.setToolTip("Déplacer la carte")
+        btn_pan.clicked.connect(self._set_map_tool_pan)
+        map_toolbar.addWidget(btn_pan)
+
+        btn_zin = QPushButton("🔍+ Zoom")
+        btn_zin.setToolTip("Zoomer")
+        btn_zin.clicked.connect(self._set_map_tool_zoom_in)
+        map_toolbar.addWidget(btn_zin)
+
+        btn_zout = QPushButton("🔍- Dézoom")
+        btn_zout.setToolTip("Dézoomer")
+        btn_zout.clicked.connect(self._set_map_tool_zoom_out)
+        map_toolbar.addWidget(btn_zout)
+
+        btn_full = QPushButton("⛶ Étendre")
+        btn_full.setToolTip("Zoomer sur l'emprise totale")
+        btn_full.clicked.connect(self._zoom_map_full_extent)
+        map_toolbar.addWidget(btn_full)
+        map_toolbar.addStretch()
+
+        tab_map_layout.addLayout(map_toolbar)
+
+        self.mini_map_canvas = QgsMapCanvas()
+        self.mini_map_canvas.setCanvasColor(QColor(245, 245, 245))
+        self.mini_map_canvas.enableAntiAliasing(True)
+        self.mini_map_canvas.setMinimumHeight(240)
+        self.mini_map_canvas.setFrameShape(QFrame.StyledPanel)
+
+        self.map_tool_pan = QgsMapToolPan(self.mini_map_canvas)
+        self.map_tool_zoom_in = QgsMapToolZoom(self.mini_map_canvas, False)
+        self.map_tool_zoom_out = QgsMapToolZoom(self.mini_map_canvas, True)
+        self.mini_map_canvas.setMapTool(self.map_tool_pan)
+
+        tab_map_layout.addWidget(self.mini_map_canvas)
+
+        self.lbl_map_preview_status = QLabel("Sélectionnez une couche pour afficher l'aperçu cartographique.")
+        self.lbl_map_preview_status.setStyleSheet("font-size: 10px; color: #5f6368;")
+        tab_map_layout.addWidget(self.lbl_map_preview_status)
+
+        self.insp_tabs.addTab(tab_map, "Aperçu Carte")
+
+        # =========================================================================
+        # ONGLET 3 : APERÇU DONNÉES (TABLEAU EXCEL / CSV / GEOJSON)
+        # =========================================================================
+        tab_data = QWidget()
+        tab_data_layout = QVBoxLayout(tab_data)
+        tab_data_layout.setContentsMargins(4, 4, 4, 4)
+        tab_data_layout.setSpacing(4)
+
+        self.lbl_data_preview_status = QLabel("Sélectionnez un fichier tabulaire (CSV, GeoJSON, etc.) pour l'aperçu.")
+        self.lbl_data_preview_status.setStyleSheet("font-size: 11px; color: #3c4043; font-weight: bold;")
+        tab_data_layout.addWidget(self.lbl_data_preview_status)
+
+        self.tbl_data_preview = QTableWidget()
+        self.tbl_data_preview.setEditTriggers(qt_compat.NoEditTriggers)
+        self.tbl_data_preview.setAlternatingRowColors(True)
+        self.tbl_data_preview.setStyleSheet("font-size: 10px; alternate-background-color: #f8f9fa;")
+        header_p = self.tbl_data_preview.horizontalHeader()
+        header_p.setDefaultAlignment(qt_compat.AlignLeft | qt_compat.AlignVCenter)
+        header_p.setSectionResizeMode(qt_compat.HeaderInteractive)
+
+        tab_data_layout.addWidget(self.tbl_data_preview)
+        self.insp_tabs.addTab(tab_data, "Aperçu Données")
+
+        inspector_layout.addWidget(self.insp_tabs)
 
         splitter.addWidget(self.inspector_panel)
         splitter.setStretchFactor(0, 3)
@@ -1010,7 +1180,123 @@ class OpenGeoDataFRDock(QDockWidget):
             desc = f"URL de la ressource : {item.url}"
         self.txt_insp_desc.setText(desc)
 
-    def on_inspector_add_clicked(self):
+        # Lancement de la prévisualisation en temps réel (Carte + Données)
+        self._update_live_previews(item)
+
+    def _set_map_tool_pan(self):
+        if hasattr(self, 'mini_map_canvas') and self.mini_map_canvas and hasattr(self, 'map_tool_pan'):
+            self.mini_map_canvas.setMapTool(self.map_tool_pan)
+
+    def _set_map_tool_zoom_in(self):
+        if hasattr(self, 'mini_map_canvas') and self.mini_map_canvas and hasattr(self, 'map_tool_zoom_in'):
+            self.mini_map_canvas.setMapTool(self.map_tool_zoom_in)
+
+    def _set_map_tool_zoom_out(self):
+        if hasattr(self, 'mini_map_canvas') and self.mini_map_canvas and hasattr(self, 'map_tool_zoom_out'):
+            self.mini_map_canvas.setMapTool(self.map_tool_zoom_out)
+
+    def _zoom_map_full_extent(self):
+        if hasattr(self, 'mini_map_canvas') and self.mini_map_canvas:
+            self.mini_map_canvas.zoomToFullExtent()
+            self.mini_map_canvas.refresh()
+
+    def _on_tabular_preview_ready(self, headers, rows, count_str):
+        self.lbl_data_preview_status.setText(count_str)
+        self.tbl_data_preview.setColumnCount(len(headers))
+        self.tbl_data_preview.setHorizontalHeaderLabels(headers)
+        self.tbl_data_preview.setRowCount(len(rows))
+
+        for r_idx, row_data in enumerate(rows):
+            for c_idx, cell_value in enumerate(row_data):
+                if c_idx < len(headers):
+                    item = QTableWidgetItem(str(cell_value))
+                    self.tbl_data_preview.setItem(r_idx, c_idx, item)
+
+        self.tbl_data_preview.resizeColumnsToContents()
+
+    def _on_tabular_preview_failed(self, err_msg):
+        self.lbl_data_preview_status.setText(err_msg)
+        self.tbl_data_preview.setRowCount(0)
+        self.tbl_data_preview.setColumnCount(0)
+
+    def _update_live_previews(self, item):
+        # 1. Réinitialisation des aperçus précédents
+        self.tbl_data_preview.setRowCount(0)
+        self.tbl_data_preview.setColumnCount(0)
+        if hasattr(self, 'mini_map_canvas') and self.mini_map_canvas:
+            self.mini_map_canvas.setLayers([])
+        self.preview_layers = []
+
+        if not item:
+            self.lbl_map_preview_status.setText("Aucune couche sélectionnée.")
+            self.lbl_data_preview_status.setText("Aucune donnée sélectionnée.")
+            return
+
+        # 2. Prévisualisation Tabulaire (CSV, TSV, GeoJSON, Tables)
+        url_lower = (item.url or '').lower()
+        fmt_lower = str(item.extra.get('format', '')).lower() if hasattr(item, 'extra') and item.extra else ''
+        d_type = getattr(item, 'data_type', '').lower()
+
+        if item.url and (d_type in ('table', 'file_vector', 'geojson', 'wfs') or any(ext in url_lower for ext in ('.csv', '.json', '.geojson', '.tsv')) or 'csv' in fmt_lower or 'json' in fmt_lower):
+            self.lbl_data_preview_status.setText("Chargement de l'aperçu des données...")
+            if hasattr(self, 'tabular_worker') and self.tabular_worker and self.tabular_worker.isRunning():
+                self.tabular_worker.quit()
+            self.tabular_worker = TabularPreviewWorker(item.url)
+            self.tabular_worker.preview_ready.connect(self._on_tabular_preview_ready)
+            self.tabular_worker.preview_failed.connect(self._on_tabular_preview_failed)
+            self.tabular_worker.start()
+        else:
+            self.lbl_data_preview_status.setText("Cet élément est un flux raster WMS ou ne comporte pas de données tabulaires brutes.")
+
+        # 3. Prévisualisation Cartographique (Mini-SIG)
+        self._update_map_preview(item)
+
+    def _update_map_preview(self, item):
+        if not hasattr(self, 'mini_map_canvas') or not self.mini_map_canvas:
+            return
+
+        try:
+            raw_url = item.extra.get('wms_url') or item.url or ""
+            d_type = getattr(item, 'data_type', '').lower()
+            s_type = getattr(item, 'service_type', '').lower()
+
+            # A. Prévisualisation WMS ou Tuiles XYZ
+            if d_type in ('wms', 'raster') or s_type == 'wms' or 'wms' in raw_url.lower() or '{z}' in raw_url:
+                layer_name = item.extra.get('layer_name')
+                if not layer_name and item.extra.get('wms_layers'):
+                    layer_name = item.extra.get('wms_layers')[0]
+                if not layer_name:
+                    layer_name = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS" if "cadastre" in item.title.lower() else "document"
+
+                if '{z}' in raw_url:
+                    uri = f"type=xyz&url={raw_url}&zmax=19&zmin=0"
+                else:
+                    uri = f"contextualWMSLegend=0&crs=EPSG:3857&dpiMode=7&featureCount=10&format=image/png&layers={layer_name}&styles=&url={raw_url}"
+
+                preview_lyr = QgsRasterLayer(uri, f"Preview_{item.title}", "wms")
+                if preview_lyr.isValid():
+                    self.preview_layers = [preview_lyr]
+                    self.mini_map_canvas.setLayers(self.preview_layers)
+                    # Centrage sur la France ou le territoire actuel
+                    self.mini_map_canvas.setExtent(QgsRectangle(-600000, 5100000, 1200000, 6700000))
+                    self.mini_map_canvas.refresh()
+                    self.lbl_map_preview_status.setText(f"Aperçu WMS actif : {item.title}")
+                    return
+
+            # B. Prévisualisation Vectorielle GeoJSON / Preset
+            if item.url and ('.geojson' in raw_url.lower() or '.json' in raw_url.lower()):
+                preview_lyr = QgsVectorLayer(item.url, f"Preview_{item.title}", "ogr")
+                if preview_lyr.isValid() and preview_lyr.featureCount() > 0:
+                    self.preview_layers = [preview_lyr]
+                    self.mini_map_canvas.setLayers(self.preview_layers)
+                    self.mini_map_canvas.setExtent(preview_lyr.extent())
+                    self.mini_map_canvas.refresh()
+                    self.lbl_map_preview_status.setText(f"Aperçu Vectoriel actif : {preview_lyr.featureCount()} entités")
+                    return
+
+            self.lbl_map_preview_status.setText(f"Prêt : {item.title} ({item.source})")
+        except Exception as e:
+            self.lbl_map_preview_status.setText(f"Aperçu cartographique non disponible pour ce flux.")
         if self.current_selected_item:
             self.import_item(self.current_selected_item)
 

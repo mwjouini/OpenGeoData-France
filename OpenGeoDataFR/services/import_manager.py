@@ -447,7 +447,7 @@ class ImportManager:
                 dep_code = item.extra.get('dep_code') if item and hasattr(item, 'extra') else None
                 filter_val = territory_filter or code_insee or getattr(item, 'territory', None)
 
-                if filter_val and str(filter_val).lower() not in ("france", "toutes les échelles"):
+                if filter_val and str(filter_val).lower() not in ("france", "toutes les échelles", "all"):
                     clean_filter = str(filter_val).strip()
                     codes = [c.strip() for c in clean_filter.split(',') if c.strip()]
                     subset_clauses = []
@@ -455,7 +455,7 @@ class ImportManager:
 
                     for fname in field_names:
                         fname_lower = fname.lower()
-                        if fname_lower in ('insee', 'code_insee', 'insee_com', 'code_com', 'insee_commune'):
+                        if fname_lower in ('insee', 'code_insee', 'insee_com', 'code_com', 'insee_commune', 'codgeo', 'codeinsee', 'c_insee', 'insee_code', 'code_insee_commune', 'com_code', 'code_commune', 'insee_c'):
                             if len(codes) > 1 and all(c.isdigit() and len(c) == 5 for c in codes):
                                 formatted_insee = ", ".join([f"'{c}'" for c in codes])
                                 subset_clauses.append(f"{fname} IN ({formatted_insee})")
@@ -465,12 +465,15 @@ class ImportManager:
                                 subset_clauses.append(f"{fname} = '{clean_filter}'")
                             elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
                                 subset_clauses.append(f"{fname} LIKE '{clean_filter}%'")
-                        elif fname_lower in ('code_dep', 'dep', 'code_dept', 'insee_dep'):
+                        elif fname_lower in ('code_dep', 'dep', 'code_dept', 'insee_dep', 'dep_code', 'dpt', 'num_dep', 'departement', 'cd_dep'):
                             if dep_code:
                                 subset_clauses.append(f"{fname} = '{dep_code}'")
                             elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
                                 subset_clauses.append(f"{fname} = '{clean_filter}'")
-                        elif fname_lower in ('nom_com', 'nom', 'commune', 'nom_commune', 'nom_dept', 'nom_dep', 'nom_reg', 'region'):
+                        elif fname_lower in ('code_reg', 'reg', 'insee_reg', 'reg_code', 'region', 'cd_reg'):
+                            if clean_filter.isdigit() and len(clean_filter) == 2:
+                                subset_clauses.append(f"{fname} = '{clean_filter}'")
+                        elif fname_lower in ('nom_com', 'nom', 'commune', 'nom_commune', 'nom_dept', 'nom_dep', 'nom_reg', 'region', 'libelle', 'libgeo'):
                             escaped_val = clean_filter.replace("'", "''")
                             subset_clauses.append(f"{fname} ILIKE '%{escaped_val}%'")
 
@@ -479,6 +482,10 @@ class ImportManager:
                         target_for_filters.setSubsetString(clause)
                         if target_for_filters.featureCount() > 0:
                             attribute_filtered = True
+                        else:
+                            # SÉCURITÉ ANTI-TABLE VIDE : Si le filtre par attribut renvoie 0 entité, on réinitialise immédiatement
+                            target_for_filters.setSubsetString("")
+                            QgsMessageLog.logMessage(f"Filtre attribut '{clause}' a donné 0 entité. Bascule automatique vers le découpage spatial géométrique.", "OpenGeoDataFR", Qgis.Info)
             except Exception as filter_err:
                 QgsMessageLog.logMessage(f"Erreur d'application du filtre par attribut: {filter_err}", "OpenGeoDataFR", Qgis.Warning)
 
@@ -490,19 +497,21 @@ class ImportManager:
                         layer_crs = target_for_filters.crs()
                         terr_crs = QgsCoordinateReferenceSystem(terr_crs_str)
 
+                        terr_geom_transformed = QgsGeometry(terr_geom)
                         if layer_crs.isValid() and terr_crs.isValid() and layer_crs != terr_crs:
                             xform = QgsCoordinateTransform(terr_crs, layer_crs, QgsProject.instance())
-                            terr_geom.transform(xform)
+                            terr_geom_transformed.transform(xform)
 
                         # Découpage géométrique réel des entités (spatial clip haute performance)
-                        bbox_request = QgsFeatureRequest().setFilterRect(terr_geom.boundingBox())
+                        terr_bbox = terr_geom_transformed.boundingBox()
+                        bbox_request = QgsFeatureRequest().setFilterRect(terr_bbox)
                         clipped_features = []
                         for feat in target_for_filters.getFeatures(bbox_request):
                             if feat.hasGeometry():
                                 g = feat.geometry()
-                                if g.intersects(terr_geom):
+                                if g.intersects(terr_geom_transformed):
                                     try:
-                                        inter_geom = g.intersection(terr_geom)
+                                        inter_geom = g.intersection(terr_geom_transformed)
                                         if not inter_geom.isEmpty():
                                             new_feat = QgsFeature(feat)
                                             new_feat.setGeometry(inter_geom)
@@ -512,7 +521,7 @@ class ImportManager:
                                     except Exception:
                                         clipped_features.append(feat)
 
-                        if clipped_features and len(clipped_features) < target_for_filters.featureCount():
+                        if clipped_features:
                             geom_type_str = QgsWkbTypes.displayString(target_for_filters.wkbType())
                             crs_authid = target_for_filters.crs().authid()
                             clipped_name = f"{target_for_filters.name()} (Découpé)"
@@ -526,6 +535,8 @@ class ImportManager:
 
                             reprojected_layer = clipped_layer
                             target_for_filters = clipped_layer
+                        else:
+                            QgsMessageLog.logMessage(f"Aucune entité géométrique dans le périmètre territorial {territory_filter}. Couche complète conservée.", "OpenGeoDataFR", Qgis.Info)
                 except Exception as spatial_err:
                     QgsMessageLog.logMessage(f"Erreur lors du découpage spatial géométrique: {spatial_err}", "OpenGeoDataFR", Qgis.Warning)
 
