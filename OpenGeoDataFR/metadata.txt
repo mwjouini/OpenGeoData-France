@@ -2,8 +2,8 @@
 name=OpenGeoData France
 qgisMinimumVersion=3.22
 qgisMaximumVersion=3.99
-description=Moteur unifié de recherche, d'exploration et d'import de données géographiques françaises (data.gouv.fr, Cadastre PCI, BAN, GPU, GéoPlateforme IGN, INPN, BRGM, INSEE)
-about=Recherche et importation directe dans QGIS de couches administratives, cadastrales, d'urbanisme CNIG, d'adresses BAN, de données environnementales (ZNIEFF, Natura 2000), risques PPRN, énergie et mobilités en un clic.
+description=Unified search, exploration, and import engine for French open geospatial data (data.gouv.fr, Cadastre PCI, BAN, GPU, IGN GeoPlateforme, INPN, BRGM, INSEE)
+about=Search and directly import French open geospatial layers into QGIS in one click: administrative boundaries, cadastre, CNIG urban planning (PLU/GPU), BAN addresses, environmental zones (ZNIEFF, Natura 2000), natural hazards (PPRN), energy and transport networks. Features local NLP natural language search and smart territorial polygon clipping.
 version=1.2.0
 author=JOUINI Mohamed Wael
 email=mohamed.wael.jouini@gmail.com
