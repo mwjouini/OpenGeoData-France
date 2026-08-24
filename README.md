@@ -3,7 +3,7 @@
 [![QGIS](https://img.shields.io/badge/QGIS-3.22%20à%203.40+-589632.svg?logo=qgis&logoColor=white)](https://qgis.org/)
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/Licence-GPL--2.0%2B-blue.svg)](LICENSE)
-[![GitHub release](https://img.shields.io/badge/Version-1.2.0-orange.svg)](https://github.com/mwjouini/OpenGeoData-France/releases)
+[![GitHub release](https://img.shields.io/badge/Version-1.0.0-orange.svg)](https://github.com/mwjouini/OpenGeoData-France/releases)
 
 **OpenGeoData France** est une extension QGIS complète, moderne et ergonomique pour rechercher, explorer et importer instantanément les données géographiques ouvertes françaises directement dans votre projet SIG.
 
