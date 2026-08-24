@@ -36,9 +36,10 @@ def get_qt_enum(enum_group, name, default=0):
 
 def exec_dialog(dlg):
     """Exécute une fenêtre modale de manière 100% compatible PyQt5 / PyQt6 / PySide6."""
-    if hasattr(dlg, 'exec'):
-        return dlg.exec()  # nosec B102
-    return dlg.exec_()
+    exec_method = getattr(dlg, 'exec', None) or getattr(dlg, 'exec_', None)
+    if callable(exec_method):
+        return exec_method()
+    return 0
 
 
 # --- Qt Core & Gui Enums ---
