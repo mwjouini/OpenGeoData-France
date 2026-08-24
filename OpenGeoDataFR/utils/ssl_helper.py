@@ -41,7 +41,7 @@ def fetch_url_bytes(url, timeout_ms=8000, headers=None):
         blocking_req = QgsBlockingNetworkRequest()
         err_code = blocking_req.get(req)
 
-        if err_code != QgsBlockingNetworkRequest.NoError:
+        if err_code != QgsBlockingNetworkRequest.ErrorCode.NoError:
             raise RuntimeError(f"Erreur réseau QGIS ({err_code}) pour l'URL: {url} - {blocking_req.errorMessage()}")
 
         reply = blocking_req.reply()

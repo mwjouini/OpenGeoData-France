@@ -32,6 +32,9 @@ from qgis.core import (
     QgsInvertedPolygonRenderer,
     QgsSingleSymbolRenderer,
     QgsFillSymbol,
+    QgsSymbol,
+    QgsRendererCategory,
+    QgsCategorizedSymbolRenderer,
     QgsMessageLog,
     Qgis
 )
@@ -81,7 +84,7 @@ class ImportManager:
                 if layer.id() not in QgsProject.instance().mapLayers():
                     QgsProject.instance().addMapLayer(layer, add_to_legend)
             except Exception as e:
-                QgsMessageLog.logMessage(f"Erreur ajout direct couche QgsProject: {e}", "OpenGeoDataFR", Qgis.Warning)
+                QgsMessageLog.logMessage(f"Erreur ajout direct couche QgsProject: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         if layer not in self.created_layers:
             self.created_layers.append(layer)
 
@@ -134,7 +137,7 @@ class ImportManager:
                             if g and not g.isEmpty():
                                 collected_geoms.append(g)
             except Exception as ex:
-                QgsMessageLog.logMessage(f"Extraction du contour pour {code}: {ex}", "OpenGeoDataFR", Qgis.Warning)
+                QgsMessageLog.logMessage(f"Extraction du contour pour {code}: {ex}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         if not collected_geoms:
             self._geom_cache[cache_key] = (None, geom_crs)
@@ -182,7 +185,7 @@ class ImportManager:
 
             return False, "Aucune URL ni service valide trouvé pour cet élément.", []
         except Exception as e:
-            QgsMessageLog.logMessage(f"Erreur d'importation: {e}", "OpenGeoDataFR", Qgis.Critical)
+            QgsMessageLog.logMessage(f"Erreur d'importation: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Critical)
             return False, f"Erreur lors de l'importation : {str(e)}", self.created_layers
 
     def download_file(self, url, filename_hint="downloaded_file", format_hint=None, progress_callback=None):
@@ -229,7 +232,7 @@ class ImportManager:
             try:
                 response = self._fetch_url(req, timeout=60)
             except Exception as http_err:
-                QgsMessageLog.logMessage(f"Erreur HTTP sur {url}: {http_err}. Tentative de résolution de secours...", "OpenGeoDataFR", Qgis.Warning)
+                QgsMessageLog.logMessage(f"Erreur HTTP sur {url}: {http_err}. Tentative de résolution de secours...", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
                 fallback_url = self._resolve_fallback_url(url)
                 if fallback_url and fallback_url != url:
                     if progress_callback:
@@ -281,7 +284,7 @@ class ImportManager:
                         shutil.copyfileobj(f_in, f_out)
                     return uncompressed_path
                 except Exception as gz_err:
-                    QgsMessageLog.logMessage(f"Erreur décompression GZ: {gz_err}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Erreur décompression GZ: {gz_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
                     return dest_file
 
             is_zip = dest_file.endswith('.zip') or zipfile.is_zipfile(dest_file)
@@ -303,12 +306,12 @@ class ImportManager:
                             if f.lower().endswith(('.shp', '.geojson', '.gpkg', '.kml', '.tab', '.csv')):
                                 return os.path.join(root, f)
                 except Exception as zip_err:
-                    QgsMessageLog.logMessage(f"Erreur décompression ZIP: {zip_err}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Erreur décompression ZIP: {zip_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
                 return extract_dir
 
             return dest_file
         except Exception as e:
-            QgsMessageLog.logMessage(f"Erreur de téléchargement: {e}", "OpenGeoDataFR", Qgis.Critical)
+            QgsMessageLog.logMessage(f"Erreur de téléchargement: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Critical)
             raise e
 
     def _resolve_fallback_url(self, failed_url):
@@ -355,7 +358,7 @@ class ImportManager:
                     if ('geojson' in fmt or 'json' in fmt or 'shp' in fmt or 'csv' in fmt) and u != failed_url:
                         return u
         except Exception as ex:
-            QgsMessageLog.logMessage(f"Échec résolution fallback URL pour {failed_url}: {ex}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Échec résolution fallback URL pour {failed_url}: {ex}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         return None
 
     def _apply_automatic_symbology(self, layer, item):
@@ -371,10 +374,6 @@ class ImportManager:
             return
 
         try:
-            from qgis.core import (
-                QgsSymbol, QgsRendererCategory, QgsCategorizedSymbolRenderer,
-                QgsSingleSymbolRenderer
-            )
             from qgis.PyQt.QtGui import QColor
 
             layer_type = item.extra.get('layer_type') if hasattr(item, 'extra') and item.extra else ''
@@ -450,7 +449,7 @@ class ImportManager:
                     layer.setRenderer(QgsSingleSymbolRenderer(sym))
                     layer.triggerRepaint()
         except Exception as style_err:
-            QgsMessageLog.logMessage(f"Application symbologie automatique ignorée: {style_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Application symbologie automatique ignorée: {style_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
     def _apply_crs_and_filters(self, layer, item, target_crs=None, territory_filter=None):
         if not layer or not layer.isValid():
@@ -479,12 +478,12 @@ class ImportManager:
                                 reprojected_layer = res['OUTPUT']
                                 reprojected_layer.setName(layer.name())
                         except Exception as proc_err:
-                            QgsMessageLog.logMessage(f"Processing reprojectlayer non exécuté: {proc_err}", "OpenGeoDataFR", Qgis.Warning)
+                            QgsMessageLog.logMessage(f"Processing reprojectlayer non exécuté: {proc_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
                     # Aligner la carte et le canevas du projet QGIS sur la projection cible sélectionnée
                     QgsProject.instance().setCrs(target_crs_obj)
         except Exception as crs_err:
-            QgsMessageLog.logMessage(f"Erreur d'application du CRS: {crs_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Erreur d'application du CRS: {crs_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         target_for_filters = reprojected_layer if isinstance(reprojected_layer, QgsVectorLayer) else (layer if isinstance(layer, QgsVectorLayer) else None)
         if target_for_filters:
@@ -532,9 +531,9 @@ class ImportManager:
                         else:
                             # SÉCURITÉ ANTI-TABLE VIDE : Si le filtre par attribut renvoie 0 entité, on réinitialise immédiatement
                             target_for_filters.setSubsetString("")
-                            QgsMessageLog.logMessage(f"Filtre attribut '{clause}' a donné 0 entité. Bascule automatique vers le découpage spatial géométrique.", "OpenGeoDataFR", Qgis.Info)
+                            QgsMessageLog.logMessage(f"Filtre attribut '{clause}' a donné 0 entité. Bascule automatique vers le découpage spatial géométrique.", "OpenGeoDataFR", Qgis.MessageLevel.Info)
             except Exception as filter_err:
-                QgsMessageLog.logMessage(f"Erreur d'application du filtre par attribut: {filter_err}", "OpenGeoDataFR", Qgis.Warning)
+                QgsMessageLog.logMessage(f"Erreur d'application du filtre par attribut: {filter_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
             # NIVEAU 2 : DÉCOUPAGE GÉOMÉTRIQUE SPATIAL SYSTÉMATIQUE SELON LE TERRITOIRE
             if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
@@ -583,9 +582,9 @@ class ImportManager:
                             reprojected_layer = clipped_layer
                             target_for_filters = clipped_layer
                         else:
-                            QgsMessageLog.logMessage(f"Aucune entité géométrique dans le périmètre territorial {territory_filter}. Couche complète conservée.", "OpenGeoDataFR", Qgis.Info)
+                            QgsMessageLog.logMessage(f"Aucune entité géométrique dans le périmètre territorial {territory_filter}. Couche complète conservée.", "OpenGeoDataFR", Qgis.MessageLevel.Info)
                 except Exception as spatial_err:
-                    QgsMessageLog.logMessage(f"Erreur lors du découpage spatial géométrique: {spatial_err}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Erreur lors du découpage spatial géométrique: {spatial_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
             # Application de la Symbologie Officielle Automatique
             self._apply_automatic_symbology(target_for_filters, item)
@@ -656,7 +655,7 @@ class ImportManager:
                 elif res == qt_compat.DialogRejected:
                     return False, "Importation CSV annulée par l'utilisateur."
         except Exception as dialog_err:
-            QgsMessageLog.logMessage(f"CSVImportDialog non exécuté: {dialog_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"CSVImportDialog non exécuté: {dialog_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         delimiter = ";"
         encoding = "utf-8-sig"
@@ -684,7 +683,7 @@ class ImportManager:
                     elif h in ('lat', 'latitude', 'y', 'y_coord'):
                         y_field = h
         except Exception as e:
-            QgsMessageLog.logMessage(f"Erreur analyse CSV: {e}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Erreur analyse CSV: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         csv_crs = target_crs if (target_crs and "Native" not in target_crs) else "EPSG:4326"
 
@@ -746,7 +745,7 @@ class ImportManager:
                         sub_content = json.loads(resp.read().decode('utf-8-sig'))
                         return self._parse_json_features(sub_content, filepath)
                 except Exception as ex:
-                    QgsMessageLog.logMessage(f"Erreur téléchargement sub-feed GBFS: {ex}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Erreur téléchargement sub-feed GBFS: {ex}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         return self._parse_json_features(content, filepath)
 
@@ -854,7 +853,7 @@ class ImportManager:
                         if name.upper() not in ('WMS', 'WFS', 'GETCAPABILITIES', 'WMS_CAPABILITIES', 'DEFAULT') and not name.startswith('http'):
                             return name
         except Exception as e:
-            QgsMessageLog.logMessage(f"Impossible d'extraire la couche WMS: {e}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Impossible d'extraire la couche WMS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         return None
 
     def _discover_wfs_layer_name(self, raw_url, search_title=None):
@@ -892,7 +891,7 @@ class ImportManager:
                         if name.upper() not in ('WFS', 'WMS', 'GETCAPABILITIES', 'WFS_CAPABILITIES', 'DEFAULT') and not name.startswith('http'):
                             return name
         except Exception as e:
-            QgsMessageLog.logMessage(f"Impossible d'extraire la couche WFS: {e}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Impossible d'extraire la couche WFS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         return None
 
     def _import_wms_layer(self, item, target_crs=None, territory_filter=None):
@@ -967,11 +966,6 @@ class ImportManager:
         que l'emprise du territoire sélectionné.
         """
         try:
-            from qgis.core import (
-                QgsVectorLayer, QgsFeature, QgsInvertedPolygonRenderer,
-                QgsSingleSymbolRenderer, QgsFillSymbol, QgsCoordinateTransform,
-                QgsCoordinateReferenceSystem
-            )
             terr_geom, terr_crs_str = self._get_territory_geometry(territory_filter)
             if not terr_geom or terr_geom.isEmpty():
                 return
@@ -1011,7 +1005,7 @@ class ImportManager:
 
             self._add_layer_safely(mask_layer)
         except Exception as mask_err:
-            QgsMessageLog.logMessage(f"Erreur création masque WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
+            QgsMessageLog.logMessage(f"Erreur création masque WMS: {mask_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
     def _import_wfs_layer(self, item, target_crs=None, territory_filter=None, progress_callback=None):
         try:
@@ -1086,7 +1080,7 @@ class ImportManager:
                                         self._add_layer_safely(final_layer)
                                         return True, f"Couche WFS '{item.title}' [{layer_direct.featureCount()} entité(s)] découpée et ajoutée avec succès !"
                 except Exception as direct_err:
-                    QgsMessageLog.logMessage(f"Import direct GeoJSON WFS ignoré: {direct_err}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Import direct GeoJSON WFS ignoré: {direct_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
             # 2. CHARGEMENT WFS NATIVE VIA QGIS AVEC REPROJECTION CÔTÉ SERVEUR (srsname)
             uri_clean_wfs = f"url='{clean_url}' typename='{typename}' srsname='{srs_code}' restrictToRequestBBOX='1' pagingEnabled='true' maxNumFeatures='5000'"

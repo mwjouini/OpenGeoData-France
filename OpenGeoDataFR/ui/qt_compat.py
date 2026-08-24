@@ -82,6 +82,7 @@ NoEditTriggers = get_enum_val(QAbstractItemView, 'EditTrigger', 'NoEditTriggers'
 
 # QFrame
 NoFrame = get_enum_val(QFrame, 'Shape', 'NoFrame', 0)
+StyledPanel = get_enum_val(QFrame, 'Shape', 'StyledPanel', 1)
 
 # QDialogButtonBox
 ButtonOk = get_enum_val(QDialogButtonBox, 'StandardButton', 'Ok', 1024)

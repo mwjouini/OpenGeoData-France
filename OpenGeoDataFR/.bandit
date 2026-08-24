@@ -1,4 +1,0 @@
-[bandit]
-targets: .
-exclude: tests,scratch,__pycache__
-skips: B101

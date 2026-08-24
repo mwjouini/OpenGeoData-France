@@ -34,7 +34,7 @@ class ImportFilterOptionDialog(QDialog):
 
         # 1. Résumé de la couche
         header_frame = QFrame()
-        header_frame.setFrameShape(QFrame.StyledPanel)
+        header_frame.setFrameShape(qt_compat.StyledPanel)
         header_layout = QVBoxLayout(header_frame)
         header_layout.setContentsMargins(8, 8, 8, 8)
         header_layout.setSpacing(3)
