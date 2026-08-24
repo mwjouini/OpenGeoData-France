@@ -84,7 +84,7 @@ class ExportService:
                             "coordinates": [clean_lon, clean_lat]
                         }
                     except (ValueError, TypeError):
-                        pass
+                        geom = None
 
             features.append({
                 "type": "Feature",

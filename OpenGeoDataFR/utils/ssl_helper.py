@@ -47,6 +47,9 @@ def fetch_url_bytes(url, timeout_ms=8000, headers=None):
         reply = blocking_req.reply()
         return bytes(reply.content())
     else:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError(f"Protocole d'URL non autorisé : {parsed.scheme}")
         req = urllib.request.Request(url, headers=default_headers)
-        with urllib.request.urlopen(req, timeout=int(timeout_ms / 1000), context=get_secure_ssl_context()) as resp:
+        with urllib.request.urlopen(req, timeout=int(timeout_ms / 1000), context=get_secure_ssl_context()) as resp:  # nosec B310
             return resp.read()

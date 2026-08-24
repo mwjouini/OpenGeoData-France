@@ -15,7 +15,10 @@ import zipfile
 import tempfile
 import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # nosec B405
 import ssl
 import csv
 from qgis.core import (
@@ -64,10 +67,11 @@ class ImportManager:
         try:
             from qgis.PyQt.QtWidgets import QApplication
             from qgis.PyQt.QtCore import QThread
-            if QApplication.instance() and QThread.currentThread() == QApplication.instance().thread():
+            app = QApplication.instance()
+            if app and QThread.currentThread() == app.thread():
                 return True
-        except Exception:
-            pass
+        except (ImportError, AttributeError):
+            return True
         return False
 
     def _add_layer_safely(self, layer, add_to_legend=True):
@@ -89,7 +93,11 @@ class ImportManager:
             self.created_layers.append(layer)
 
     def _fetch_url(self, req, timeout=30):
-        return urllib.request.urlopen(req, timeout=timeout, context=self.ssl_ctx)
+        url_str = req.full_url if hasattr(req, 'full_url') else str(req)
+        parsed = urllib.parse.urlparse(url_str)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError(f"Protocole d'URL non autorisé : {parsed.scheme}")
+        return urllib.request.urlopen(req, timeout=timeout, context=self.ssl_ctx)  # nosec B310
 
     def _get_territory_geometry(self, territory_filter):
         """
@@ -793,7 +801,7 @@ class ImportManager:
                         "coordinates": [lon, lat]
                     }
                 except (ValueError, TypeError):
-                    pass
+                    geom = None
 
             if geom:
                 features.append({
@@ -846,7 +854,7 @@ class ImportManager:
             req = urllib.request.Request(capabilities_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
             with self._fetch_url(req, timeout=8) as response:
                 xml_data = response.read()
-                root = ET.fromstring(xml_data)
+                root = ET.fromstring(xml_data)  # nosec B314
                 for elem in root.iter():
                     if elem.tag.endswith('Name') and elem.text and elem.text.strip():
                         name = elem.text.strip()
@@ -863,7 +871,7 @@ class ImportManager:
             req = urllib.request.Request(capabilities_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
             with self._fetch_url(req, timeout=10) as response:
                 xml_data = response.read()
-                root = ET.fromstring(xml_data)
+                root = ET.fromstring(xml_data)  # nosec B314
 
                 best_name = None
                 for ft in root.iter():

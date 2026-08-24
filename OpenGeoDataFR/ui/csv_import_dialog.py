@@ -154,8 +154,8 @@ class CSVImportDialog(QDialog):
                     delimiter = "|"
                 else:
                     delimiter = ","
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            delimiter = ";"
 
         idx = self.cmb_delimiter.findData(delimiter)
         if idx >= 0:

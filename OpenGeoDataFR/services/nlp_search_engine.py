@@ -299,8 +299,8 @@ class NLPSearchEngine:
                     if sim > 0:
                         pid = self.preset_id_list[idx]
                         scored.append((pid, float(sim)))
-            except Exception:
-                pass
+            except Exception as tfidf_err:
+                print(f"[OpenGeoDataFR] Erreur calcul TF-IDF: {tfidf_err}")
 
         # B. Évaluation par Plongements Thématiques & Similarité Fuzzy Levenshtein
         for theme_key, theme_data in self.THEMATIC_EMBEDDINGS.items():
@@ -428,6 +428,6 @@ class NLPSearchEngine:
                 data = json.loads(content.decode('utf-8'))
                 if data and isinstance(data, list) and len(data) > 0:
                     return data[0]
-        except Exception:
-            pass
+        except Exception as api_err:
+            print(f"[OpenGeoDataFR] Résolution GeoAPI ignorée: {api_err}")
         return None

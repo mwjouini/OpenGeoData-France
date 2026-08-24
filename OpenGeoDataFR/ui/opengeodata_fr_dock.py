@@ -246,9 +246,9 @@ class ImportWorker(QThread):
                     terr_geom, terr_crs_str = self.import_manager._get_territory_geometry(self.territory_filter)
                     if terr_geom and not terr_geom.isEmpty():
                         bb = terr_geom.boundingBox()
-                        extent_info = (bb.xMinimum(), bb.yMinimum(), bb.xMaximum(), bb.yMaximum(), terr_crs_str)
-                except Exception:
-                    pass
+                except Exception as ext_err:
+                    extent_info = None
+                    print(f"[OpenGeoDataFR] Erreur calcul emprise : {ext_err}")
 
             self.import_finished.emit(success, msg, extent_info, created_layers)
         except Exception as e:

@@ -61,8 +61,8 @@ class OpenGeoDataFR:
             if hasattr(self.dock, 'cleanup'):
                 try:
                     self.dock.cleanup()
-                except Exception:
-                    pass
+                except Exception as err:
+                    print(f"[OpenGeoDataFR] Nettoyage dock ignoré: {err}")
             self.iface.removeDockWidget(self.dock)
             self.dock.deleteLater()
             self.dock = None

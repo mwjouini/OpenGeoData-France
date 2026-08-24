@@ -89,8 +89,8 @@ class DataGouvClient:
                 item = self._parse_dataservice(s)
                 if item:
                     results.append(item)
-        except Exception:
-            pass
+        except Exception as ds_err:
+            print(f"[OpenGeoDataFR] Recherche dataservices ignorée : {ds_err}")
 
         return results
 
