@@ -54,6 +54,36 @@ class ImportManager:
         os.makedirs(self.cache_dir, exist_ok=True)
         self.ssl_ctx = get_secure_ssl_context()
         self._geom_cache = {}
+        self.created_layers = []
+
+    def _is_main_thread(self):
+        """Vérifie si le code s'exécute actuellement sur le thread graphique principal de QGIS / Qt."""
+        try:
+            from qgis.PyQt.QtWidgets import QApplication
+            from qgis.PyQt.QtCore import QThread
+            if QApplication.instance() and QThread.currentThread() == QApplication.instance().thread():
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _add_layer_safely(self, layer, add_to_legend=True):
+        """
+        Enregistre la couche dans created_layers.
+        Si l'appel s'exécute sur le thread principal GUI, l'ajoute immédiatement à QgsProject.
+        Si l'appel s'exécute dans un QThread de travail, l'ajout à QgsProject est différé
+        au thread principal via signal pour éviter tout crash C++ QSortFilterProxyModel.
+        """
+        if not layer or not layer.isValid():
+            return
+        if self._is_main_thread():
+            try:
+                if layer.id() not in QgsProject.instance().mapLayers():
+                    QgsProject.instance().addMapLayer(layer, add_to_legend)
+            except Exception as e:
+                QgsMessageLog.logMessage(f"Erreur ajout direct couche QgsProject: {e}", "OpenGeoDataFR", Qgis.Warning)
+        if layer not in self.created_layers:
+            self.created_layers.append(layer)
 
     def _fetch_url(self, req, timeout=30):
         return urllib.request.urlopen(req, timeout=timeout, context=self.ssl_ctx)
@@ -126,27 +156,34 @@ class ImportManager:
     def import_item(self, item, as_wms=False, target_crs=None, territory_filter=None, progress_callback=None):
         """
         Importe un DataItem ou UrbanDocItem dans le projet QGIS actif avec gestion du CRS, filtre territorial et symbologie.
+        Retourne (success, msg, created_layers).
         """
         if not item:
-            return False, "Élément d'import non valide."
+            return False, "Élément d'import non valide.", []
+
+        self.created_layers = []
 
         try:
             if hasattr(item, 'doc_type') and item.data_type == "urban_doc":
-                return self._import_urban_doc(item, as_wms=as_wms, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                success, msg = self._import_urban_doc(item, as_wms=as_wms, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                return success, msg, self.created_layers
 
             if item.data_type == 'wms' or item.service_type == 'WMS' or as_wms:
-                return self._import_wms_layer(item, target_crs=target_crs, territory_filter=territory_filter)
+                success, msg = self._import_wms_layer(item, target_crs=target_crs, territory_filter=territory_filter)
+                return success, msg, self.created_layers
 
             if item.data_type == 'wfs' or item.service_type == 'WFS':
-                return self._import_wfs_layer(item, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                success, msg = self._import_wfs_layer(item, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                return success, msg, self.created_layers
 
             if item.url:
-                return self._import_file_resource(item, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                success, msg = self._import_file_resource(item, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+                return success, msg, self.created_layers
 
-            return False, "Aucune URL ni service valide trouvé pour cet élément."
+            return False, "Aucune URL ni service valide trouvé pour cet élément.", []
         except Exception as e:
             QgsMessageLog.logMessage(f"Erreur d'importation: {e}", "OpenGeoDataFR", Qgis.Critical)
-            return False, f"Erreur lors de l'importation : {str(e)}"
+            return False, f"Erreur lors de l'importation : {str(e)}", self.created_layers
 
     def download_file(self, url, filename_hint="downloaded_file", format_hint=None, progress_callback=None):
         try:
@@ -226,6 +263,15 @@ class ImportManager:
                             else:
                                 progress_callback(f"Téléchargement : {mb_dl:.1f} Mo transférés...")
 
+            # 1. Détection de page HTML d'erreur retournée par le serveur
+            if os.path.exists(dest_file) and os.path.getsize(dest_file) > 0:
+                with open(dest_file, 'rb') as check_f:
+                    header_bytes = check_f.read(128).lower()
+                    if header_bytes.startswith(b'<!doctype') or header_bytes.startswith(b'<html') or b'<head>' in header_bytes:
+                        if fallback_url and fallback_url != url:
+                            return self.download_file(fallback_url, filename_hint=filename_hint, format_hint=format_hint, progress_callback=progress_callback)
+                        raise ValueError(f"Le serveur distant a renvoyé une page HTML au lieu du fichier géographique attendu ({url}).")
+
             if dest_file.endswith('.gz'):
                 if progress_callback:
                     progress_callback("Décompression du fichier GZ en cours...")
@@ -238,7 +284,8 @@ class ImportManager:
                     QgsMessageLog.logMessage(f"Erreur décompression GZ: {gz_err}", "OpenGeoDataFR", Qgis.Warning)
                     return dest_file
 
-            if dest_file.endswith('.zip'):
+            is_zip = dest_file.endswith('.zip') or zipfile.is_zipfile(dest_file)
+            if is_zip:
                 if progress_callback:
                     progress_callback("Décompression du fichier ZIP en cours...")
                 extract_dir = os.path.join(self.cache_dir, safe_name)
@@ -253,7 +300,7 @@ class ImportManager:
                             zip_ref.extract(member, extract_dir)
                     for root, dirs, files in os.walk(extract_dir):
                         for f in files:
-                            if f.endswith(('.shp', '.geojson', '.gpkg', '.kml', '.tab', '.csv')):
+                            if f.lower().endswith(('.shp', '.geojson', '.gpkg', '.kml', '.tab', '.csv')):
                                 return os.path.join(root, f)
                 except Exception as zip_err:
                     QgsMessageLog.logMessage(f"Erreur décompression ZIP: {zip_err}", "OpenGeoDataFR", Qgis.Warning)
@@ -558,7 +605,7 @@ class ImportManager:
             layer = QgsRasterLayer(local_path, item.title)
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 return True, f"Couche raster '{item.title}' ajoutée avec succès."
             return False, "Échec de chargement de la couche raster."
 
@@ -570,7 +617,7 @@ class ImportManager:
         layer = QgsVectorLayer(local_path, item.title, "ogr")
         if layer.isValid():
             final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-            QgsProject.instance().addMapLayer(final_layer)
+            self._add_layer_safely(final_layer)
             return True, f"Couche vectorielle '{item.title}' ajoutée avec succès."
 
         if ext in ('.json', '.dat') or 'json' in ext:
@@ -579,7 +626,7 @@ class ImportManager:
                 layer = QgsVectorLayer(converted_path, item.title, "ogr")
                 if layer.isValid():
                     final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                    QgsProject.instance().addMapLayer(final_layer)
+                    self._add_layer_safely(final_layer)
                     return True, f"Couche vectorielle '{item.title}' convertie et ajoutée avec succès."
 
             return False, f"Le fichier ne contient pas de géométries ou d'entités spatiales directement exploitables.\nDétail: {convert_msg}"
@@ -601,7 +648,7 @@ class ImportManager:
                         layer = QgsVectorLayer(dlg.selected_uri, item.title, "delimitedtext")
                         if layer.isValid():
                             final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                            QgsProject.instance().addMapLayer(final_layer)
+                            self._add_layer_safely(final_layer)
                             return True, f"Couche CSV '{item.title}' configurée et ajoutée avec succès !"
                         else:
                             return False, f"Impossible de charger la couche CSV avec la configuration sélectionnée."
@@ -646,7 +693,7 @@ class ImportManager:
             layer = QgsVectorLayer(uri, item.title, "delimitedtext")
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 return True, f"Couche ponctuelle CSV '{item.title}' ajoutée avec succès."
 
         if wkt_field:
@@ -654,7 +701,7 @@ class ImportManager:
             layer = QgsVectorLayer(uri, item.title, "delimitedtext")
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 return True, f"Couche vectorielle WKT CSV '{item.title}' ajoutée avec succès."
 
         uri = f"file:///{local_path}?delimiter={urllib.parse.quote(delimiter)}&useHeader=yes&type=csv&geometry=none&encoding={encoding}"
@@ -664,7 +711,7 @@ class ImportManager:
 
         if layer.isValid():
             final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-            QgsProject.instance().addMapLayer(final_layer)
+            self._add_layer_safely(final_layer)
             return True, f"Table attributaire CSV '{item.title}' ajoutée avec succès au projet."
 
         return False, "Échec de lecture du fichier CSV."
@@ -861,7 +908,7 @@ class ImportManager:
             layer = QgsRasterLayer(uri, item.title, "wms")
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
                     self._create_and_add_wms_mask(item, territory_filter)
                 return True, f"Fond de carte XYZ '{item.title}' ajouté avec succès."
@@ -903,7 +950,7 @@ class ImportManager:
 
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
 
                 # Découpage du fond de carte raster par masque de polygone inversé
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
@@ -962,19 +1009,7 @@ class ImportManager:
             inv_renderer.setEmbeddedRenderer(QgsSingleSymbolRenderer(fill_sym))
             mask_layer.setRenderer(inv_renderer)
 
-            if raster_layer:
-                root = QgsProject.instance().layerTreeRoot()
-                raster_node = root.findLayer(raster_layer.id())
-                if raster_node:
-                    parent_group = raster_node.parent() or root
-                    idx = parent_group.children().index(raster_node)
-                    QgsProject.instance().addMapLayer(mask_layer, False)
-                    parent_group.insertLayer(idx, mask_layer)
-                else:
-                    QgsProject.instance().addMapLayer(mask_layer)
-            else:
-                QgsProject.instance().addMapLayer(mask_layer)
-
+            self._add_layer_safely(mask_layer)
         except Exception as mask_err:
             QgsMessageLog.logMessage(f"Erreur création masque WMS: {mask_err}", "OpenGeoDataFR", Qgis.Warning)
 
@@ -1012,58 +1047,53 @@ class ImportManager:
             tf = (territory_filter or code_insee or '').strip()
             codes = [c.strip() for c in tf.split(',') if c.strip()]
 
-            # 1. TENTATIVE D'IMPORT DIRECT GEOJSON WFS AVEC CONVERSION DE PROJECTION CÔTÉ SERVEUR (SRSNAME)
-            if codes:
+            # 1. TENTATIVE D'IMPORT DIRECT GEOJSON WFS AVEC FILTRAGE BBOX SPATIAL TERRITORIAL (HAUTE PERFORMANCE)
+            if tf and str(tf).lower() not in ("france", "toutes les échelles", "all"):
                 try:
-                    if len(codes) > 1 and all(c.isdigit() and len(c) == 5 for c in codes):
-                        formatted_insee = ", ".join([f"'{c}'" for c in codes])
-                        direct_cql = f"code_insee IN ({formatted_insee})"
-                    elif tf.isdigit() and len(tf) == 5:
-                        direct_cql = f"code_insee='{tf}'"
-                    elif tf.isdigit() and (len(tf) == 2 or len(tf) == 3):
-                        direct_cql = f"code_dep='{tf}'"
-                    else:
-                        clean_tf = tf.replace("'", "''")
-                        direct_cql = f"nom_com ILIKE '%{clean_tf}%'"
+                    terr_geom, terr_crs_str = self._get_territory_geometry(tf)
+                    if terr_geom and not terr_geom.isEmpty():
+                        bb = terr_geom.boundingBox()
+                        # Ordre des axes WFS 2.0.0 pour EPSG:4326 (Lat min, Lon min, Lat max, Lon max)
+                        bbox_param = f"{bb.yMinimum()},{bb.xMinimum()},{bb.yMaximum()},{bb.xMaximum()},urn:ogc:def:crs:EPSG::4326"
 
-                    wfs_base = clean_url.split('?')[0]
-                    params = {
-                        "SERVICE": "WFS",
-                        "REQUEST": "GetFeature",
-                        "VERSION": "2.0.0",
-                        "TYPENAMES": typename,
-                        "OUTPUTFORMAT": "json",
-                        "SRSNAME": srs_code,
-                        "CQL_FILTER": direct_cql
-                    }
-                    direct_url = f"{wfs_base}?{urllib.parse.urlencode(params)}"
-                    safe_file_id = "".join([c for c in f"wfs_{typename}_{srs_code}_{hash(direct_cql)}" if c.isalnum() or c == '_'])
-                    cache_file = os.path.join(self.cache_dir, f"{safe_file_id}.geojson")
+                        wfs_base = clean_url.split('?')[0]
+                        params = {
+                            "SERVICE": "WFS",
+                            "REQUEST": "GetFeature",
+                            "VERSION": "2.0.0",
+                            "TYPENAMES": typename,
+                            "OUTPUTFORMAT": "json",
+                            "BBOX": bbox_param
+                        }
+                        direct_url = f"{wfs_base}?{urllib.parse.urlencode(params)}"
+                        safe_file_id = "".join([c for c in f"wfs_{typename}_{hash(bbox_param)}" if c.isalnum() or c == '_'])
+                        cache_file = os.path.join(self.cache_dir, f"{safe_file_id}.geojson")
 
-                    if progress_callback:
-                        progress_callback(f"Téléchargement WFS réprojeté en {srs_code}...")
+                        if progress_callback:
+                            progress_callback(f"Téléchargement WFS optimisé ({item.title})...")
 
-                    req = urllib.request.Request(direct_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-                    with self._fetch_url(req, timeout=12) as resp:
-                        if resp.status == 200:
-                            payload = resp.read()
-                            with open(cache_file, 'wb') as f_out:
-                                f_out.write(payload)
+                        req = urllib.request.Request(direct_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
+                        with self._fetch_url(req, timeout=12) as resp:
+                            if resp.status == 200:
+                                payload = resp.read()
+                                if payload and not payload.strip().startswith(b'<?xml') and not payload.strip().startswith(b'<ows:ExceptionReport'):
+                                    with open(cache_file, 'wb') as f_out:
+                                        f_out.write(payload)
 
-                            layer_direct = QgsVectorLayer(cache_file, item.title, "ogr")
-                            if layer_direct.isValid() and layer_direct.featureCount() > 0:
-                                final_layer = self._apply_crs_and_filters(layer_direct, item, target_crs=target_crs, territory_filter=territory_filter)
-                                QgsProject.instance().addMapLayer(final_layer)
-                                return True, f"Couche WFS '{item.title}' [{srs_code}, {layer_direct.featureCount()} entité(s)] ajoutée avec succès !"
+                                    layer_direct = QgsVectorLayer(cache_file, item.title, "ogr")
+                                    if layer_direct.isValid() and layer_direct.featureCount() > 0:
+                                        final_layer = self._apply_crs_and_filters(layer_direct, item, target_crs=target_crs, territory_filter=territory_filter)
+                                        self._add_layer_safely(final_layer)
+                                        return True, f"Couche WFS '{item.title}' [{layer_direct.featureCount()} entité(s)] découpée et ajoutée avec succès !"
                 except Exception as direct_err:
-                    QgsMessageLog.logMessage(f"Import direct GeoJSON ignoré: {direct_err}", "OpenGeoDataFR", Qgis.Warning)
+                    QgsMessageLog.logMessage(f"Import direct GeoJSON WFS ignoré: {direct_err}", "OpenGeoDataFR", Qgis.Warning)
 
             # 2. CHARGEMENT WFS NATIVE VIA QGIS AVEC REPROJECTION CÔTÉ SERVEUR (srsname)
             uri_clean_wfs = f"url='{clean_url}' typename='{typename}' srsname='{srs_code}' restrictToRequestBBOX='1' pagingEnabled='true' maxNumFeatures='5000'"
             layer_wfs = QgsVectorLayer(uri_clean_wfs, item.title, "WFS")
             if layer_wfs.isValid():
                 final_layer = self._apply_crs_and_filters(layer_wfs, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 return True, f"Flux WFS '{item.title}' [{typename}, {srs_code}] ajouté avec succès au projet."
 
             return self._import_wms_layer(item, target_crs=target_crs)
@@ -1088,7 +1118,7 @@ class ImportManager:
                 layer = QgsRasterLayer(uri, layer_title, "wms")
                 if layer.isValid():
                     final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs)
-                    QgsProject.instance().addMapLayer(final_layer)
+                    self._add_layer_safely(final_layer)
                     added_count += 1
 
             if added_count > 0:
@@ -1101,7 +1131,7 @@ class ImportManager:
             layer = QgsVectorLayer(uri, f"{item.title} (WFS - {lyr})", "WFS")
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                QgsProject.instance().addMapLayer(final_layer)
+                self._add_layer_safely(final_layer)
                 added_count += 1
 
         if added_count > 0:

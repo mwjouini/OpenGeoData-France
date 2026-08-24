@@ -183,4 +183,6 @@ Lors du démarrage d'une nouvelle conversation, le prochain agent doit :
 1. Consulter ce fichier `PROJECT_CONTEXT.md` pour comprendre l'état actuel et l'architecture.
 2. Toujours effectuer les tests de géométrie et de découpage avec `python-qgis-ltr.bat`.
 3. Conserver le design sobre et professionnel natif de QGIS (aucun emoji, pas de styles saturés).
-4. Synchroniser systématiquement les fichiers modifiés vers `C:\Users\mjouini\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\OpenGeoDataFR`.
+4. Maintenir le volet d'inspection épuré (Fiche & Métadonnées textuelles) sans requête réseau de prévisualisation au clic afin de garantir une réactivité instantanée à 100% sans jamais figer QGIS.
+5. Synchroniser systématiquement les fichiers modifiés vers `C:\Users\mjouini\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\OpenGeoDataFR`.
+6. NE JAMAIS exécuter de push vers GitHub sans accord préalable explicite de l'utilisateur.
