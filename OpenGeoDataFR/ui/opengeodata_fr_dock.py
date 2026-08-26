@@ -356,6 +356,7 @@ class OpenGeoDataFRDock(QDockWidget):
             ("risques", "Risques"),
             ("energie", "Énergie"),
             ("transport", "Transports"),
+            ("meteo", "Météo"),
             ("raster", "Fonds IGN")
         ]
 
@@ -839,7 +840,9 @@ class OpenGeoDataFRDock(QDockWidget):
                     cat_match = True
                 elif self.active_category == "energie" and (item_cat == "energie" or any(k in item_title for k in ("irve", "recharge", "enr", "electr", "rte", "sdes"))):
                     cat_match = True
-                elif self.active_category == "transport" and (item_cat == "transport" or any(k in item_title for k in ("route", "cyclable", "velo", "ferre", "sncf", "train", "bus"))):
+                elif self.active_category == "transport" and (item_cat == "transport" or any(k in item_title for k in ("route", "cyclable", "velo", "ferre", "sncf", "train", "bus", "gtfs", "netex", "covoiturage"))):
+                    cat_match = True
+                elif self.active_category == "meteo" and (item_cat == "meteo" or any(k in item_title for k in ("meteo", "climat", "temperature", "pluie", "station"))):
                     cat_match = True
                 elif self.active_category == "raster" and (item_cat == "raster" or item.data_type == "wms" or any(k in item_title for k in ("plan ign", "ortho", "scan 25", "osm"))):
                     cat_match = True

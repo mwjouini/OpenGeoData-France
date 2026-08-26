@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Bibliothèque de pré-réglages (Presets) standards pour la France.
-Permet d'accéder en 1 clic aux grands jeux de données de référence nationaux
-(IGN, INSEE, Cadastre, GPU, CEREMA, OFB, INPN, BRGM, ADEME, RTE, SNCF).
+Permet d'accéder en 1 clic aux grands jeux de données de référence nationaux et régionaux :
+IGN, INSEE, Cadastre DGFiP, GPU, INPN/OFB, BRGM/Géorisques, transport.data.gouv.fr,
+meteo.data.gouv.fr, RTE, Enedis, SNCF, et les CRIGEs régionaux.
 """
 
 from ..models import DataItem, UrbanDocItem
@@ -25,7 +26,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -33,7 +34,7 @@ class PresetLibrary:
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'admin',
                     'format': 'Flux WFS',
-                    'description': 'Limites géographiques des communes métropolitaines et DROM (Admin Express)'
+                    'description': 'Limites géographiques officielles des 35 000 communes (Admin Express)'
                 }
             ),
             DataItem(
@@ -44,7 +45,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -52,7 +53,7 @@ class PresetLibrary:
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'admin',
                     'format': 'Flux WFS',
-                    'description': 'Limites des départements français et collectivités d\'outre-mer'
+                    'description': 'Limites des 101 départements français et collectivités d\'outre-mer'
                 }
             ),
             DataItem(
@@ -63,7 +64,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -82,7 +83,7 @@ class PresetLibrary:
                 territory="France",
                 scale="epci",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -101,7 +102,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -120,7 +121,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (INSEE)",
+                date="2026 (INSEE)",
                 url="https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion,population",
                 service_type="HTTP",
                 extra={
@@ -148,7 +149,7 @@ class PresetLibrary:
             ),
 
             # =========================================================================
-            # 2. FONCIER & CADASTRE (PCI Etalab / DGFiP / IGN)
+            # 2. CADASTRE & ADRESSES (DGFiP, IGN, BAN)
             # =========================================================================
             DataItem(
                 item_id="preset_pci_wms_ign",
@@ -158,7 +159,7 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:3857",
-                date="Temps Réel (2025)",
+                date="2026 (IGN/DGFiP)",
                 url="https://data.geopf.fr/wms-r/ows",
                 service_type="WMS",
                 extra={
@@ -166,80 +167,57 @@ class PresetLibrary:
                     'wms_url': 'https://data.geopf.fr/wms-r/ows',
                     'category': 'cadastre',
                     'format': 'Flux WMS',
-                    'description': 'Plan cadastral unifié national DGFiP / IGN en flux cartographique haute résolution'
+                    'description': 'Flux WMS officiel du plan cadastral vectoriel assemblé national'
                 }
             ),
             DataItem(
-                item_id="preset_pci_beauvais",
-                title="Parcelles Cadastrales PCI Etalab - Beauvais (60057)",
-                source="Cadastre PCI Etalab",
-                data_type="file_vector",
-                territory="Beauvais (60057)",
-                scale="commune",
+                item_id="preset_ban_nationale",
+                title="Base Adresse Nationale BAN - France Complète",
+                source="data.gouv.fr (IGN / DINUM)",
+                data_type="table",
+                territory="France",
+                scale="france",
                 crs="EPSG:4326",
-                date="2025",
-                url="https://cadastre.data.gouv.fr/data/etalab-cadastre/latest/geojson/communes/60/60057/cadastre-60057-parcelles.json.gz",
+                date="2026 (BAN)",
+                url="https://adresse.data.gouv.fr/data/ban/adresses/latest/csv/adresses-france.csv.gz",
                 service_type="HTTP",
                 extra={
-                    'code_insee': '60057',
-                    'format': 'GEOJSON.GZ',
-                    'category': 'cadastre',
-                    'description': 'Parcelles cadastrales vectorielles complètes de la commune de Beauvais'
-                }
-            ),
-            DataItem(
-                item_id="preset_bdtopo_batiments",
-                title="Bâtiments & Hauteurs BD TOPO (IGN)",
-                source="GéoPlateforme IGN",
-                data_type="wfs",
-                territory="France",
-                scale="commune",
-                crs="EPSG:4326",
-                date="2025 (IGN)",
-                url="https://data.geopf.fr/wfs/ows",
-                service_type="WFS",
-                extra={
-                    'layer_name': 'BDTOPO_V3:batiment',
-                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
-                    'category': 'batiment',
-                    'format': 'Flux WFS',
-                    'description': '50 millions de bâtiments de la BD TOPO IGN avec hauteur réelle, usage, nombre d\'étages et identifiant unique'
+                    'format': 'CSV.GZ',
+                    'category': 'admin',
+                    'description': 'Référentiel national officiel des adresses postales géolocalisées'
                 }
             ),
 
             # =========================================================================
-            # 3. URBANISME & FONCIER (GPU - Géoportail de l'Urbanisme)
+            # 3. URBANISME & PLANIFICATION (GPU)
             # =========================================================================
             UrbanDocItem(
                 item_id="preset_gpu_carte_nationale",
-                title="Carte nationale des documents d'urbanisme (GPU)",
-                doc_type="Carte globale",
+                title="Documents d'Urbanisme & Zonages Réglementaires (GPU)",
+                doc_type="DU",
                 territory="France",
-                scale="france",
-                crs="EPSG:3857 (WMS) / EPSG:4326 (WFS)",
-                date="2025 (GPU)",
+                scale="commune",
+                crs="EPSG:3857",
+                date="2026",
                 url="https://data.geopf.fr/wms-v/ows",
-                service_type="WMS",
-                wms_layers=["document"],
-                wfs_layers=["wfs_du:doc_urba"],
-                files=[],
+                service_type="GPU",
+                wms_layers=["document", "zone_secteur", "prescription"],
+                wfs_layers=["wfs_du:zone_urba", "wfs_du:prescription_pct"],
                 extra={
-                    'wms_url': 'https://data.geopf.fr/wms-v/ows',
-                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'urbanisme',
-                    'format': 'WMS/WFS',
-                    'description': 'Emprises et état d\'avancement des documents PLU, PLUi, SCOT, POS et CC en France'
+                    'format': 'WMS/WFS GPU',
+                    'description': 'Documents d\'urbanisme numérisés (PLU, PLUi, POS, Cartes Communales) du Géoportail de l\'Urbanisme'
                 }
             ),
             DataItem(
                 item_id="preset_gpu_zones_urba",
-                title="Zones d'Urbanisme PLU/PLUi (GPU WFS)",
-                source="Géoportail de l'urbanisme (GPU)",
+                title="Zonages d'Urbanisme (PLU/PLUi/POS) - WFS National",
+                source="Géoportail de l'Urbanisme (GPU)",
                 data_type="wfs",
                 territory="France",
                 scale="commune",
                 crs="EPSG:4326",
-                date="2025 (GPU)",
+                date="2026 (GPU)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
@@ -247,71 +225,112 @@ class PresetLibrary:
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'urbanisme',
                     'format': 'Flux WFS',
-                    'description': 'Zonages réglementaires (U, AU, A, N) issus des PLU et PLUi numérisés au standard CNIG'
+                    'description': 'Couche vectorielle nationale des zones U, AU, A et N des PLU'
                 }
             ),
             DataItem(
                 item_id="preset_gpu_sup",
-                title="Servitudes d'Utilité Publique SUP (GPU WFS)",
-                source="Géoportail de l'urbanisme (GPU)",
+                title="Servitudes d'Utilité Publique (SUP) - WFS National",
+                source="Géoportail de l'Urbanisme (GPU)",
                 data_type="wfs",
                 territory="France",
                 scale="commune",
                 crs="EPSG:4326",
-                date="2025 (GPU)",
+                date="2026 (GPU)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
                     'layer_name': 'wfs_sup:assiette_sup_s',
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
-                    'wfs_layers': ['wfs_sup:assiette_sup_s', 'wfs_sup:generateur_sup_s'],
                     'category': 'urbanisme',
                     'format': 'Flux WFS',
-                    'description': 'Assiettes et générateurs des servitudes d\'utilité publique (patrimoine, risques, canalisations)'
+                    'description': 'Assiettes des servitudes d\'utilité publique impactant l\'occupation des sols'
                 }
             ),
 
             # =========================================================================
-            # 4. ENVIRONNEMENT & BIODIVERSITÉ (INPN / OFB / IGN)
+            # 4. TOPOGRAPHIE & RÉFÉRENTIELS IGN
             # =========================================================================
             DataItem(
-                item_id="preset_znieff1",
-                title="ZNIEFF Type 1 - Espaces de grand intérêt écologique (INPN / OFB)",
-                source="GéoPlateforme IGN / INPN",
+                item_id="preset_bdtopo_batiments",
+                title="Bâtiments 3D / Emprise du bâti (BD TOPO IGN)",
+                source="GéoPlateforme IGN",
                 data_type="wfs",
                 territory="France",
-                scale="france",
+                scale="commune",
                 crs="EPSG:4326",
-                date="2025 (INPN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
-                    'layer_name': 'patrinat_znieff1:znieff1',
+                    'layer_name': 'BDTOPO_V3:batiment',
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
-                    'category': 'environnement',
+                    'category': 'admin',
                     'format': 'Flux WFS',
-                    'description': 'Zones Naturelles d\'Intérêt Écologique, Faunistique et Floristique de type 1'
+                    'description': 'Emprises et hauteurs réelles des bâtiments (BD TOPO)'
                 }
             ),
             DataItem(
-                item_id="preset_znieff2",
-                title="ZNIEFF Type 2 - Grands ensembles naturels (INPN / OFB)",
-                source="GéoPlateforme IGN / INPN",
+                item_id="preset_bdtopo_routes",
+                title="Réseau routier et voies de circulation (BD TOPO IGN)",
+                source="GéoPlateforme IGN",
                 data_type="wfs",
                 territory="France",
-                scale="france",
+                scale="commune",
                 crs="EPSG:4326",
-                date="2025 (INPN)",
+                date="2026 (IGN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
-                    'layer_name': 'patrinat_znieff2:znieff2',
+                    'layer_name': 'BDTOPO_V3:troncon_de_route',
+                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
+                    'category': 'transport',
+                    'format': 'Flux WFS',
+                    'description': 'Voies, rues, routes nationales et départementales'
+                }
+            ),
+            DataItem(
+                item_id="preset_cours_d_eau",
+                title="Réseau hydrographique & Cours d'eau (BD TOPO / TOPAGE)",
+                source="GéoPlateforme IGN / OFB",
+                data_type="wfs",
+                territory="France",
+                scale="commune",
+                crs="EPSG:4326",
+                date="2026 (IGN)",
+                url="https://data.geopf.fr/wfs/ows",
+                service_type="WFS",
+                extra={
+                    'layer_name': 'BDTOPO_V3:cours_d_eau',
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'environnement',
                     'format': 'Flux WFS',
-                    'description': 'Grands ensembles naturels paysagers et écologiques riches de type 2'
+                    'description': 'Rivières, cours d\'eau et masses d\'eau de surface'
                 }
             ),
+            DataItem(
+                item_id="preset_bd_foret",
+                title="Forêts et Couverture Végétale (BD Forêt / BD TOPO IGN)",
+                source="GéoPlateforme IGN",
+                data_type="wfs",
+                territory="France",
+                scale="commune",
+                crs="EPSG:4326",
+                date="2026 (IGN)",
+                url="https://data.geopf.fr/wfs/ows",
+                service_type="WFS",
+                extra={
+                    'layer_name': 'BDTOPO_V3:zone_de_vegetation',
+                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
+                    'category': 'environnement',
+                    'format': 'Flux WFS',
+                    'description': 'Zones boisées, forêts domaniales et végétation'
+                }
+            ),
+
+            # =========================================================================
+            # 5. ENVIRONNEMENT & BIODIVERSITÉ (INPN, OFB, PatriNat, AEE)
+            # =========================================================================
             DataItem(
                 item_id="preset_natura2000",
                 title="Réseau Natura 2000 - SIC/ZSC & ZPS (INPN / OFB)",
@@ -320,67 +339,106 @@ class PresetLibrary:
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025 (INPN)",
+                date="2026 (PatriNat)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
-                    'layer_name': 'patrinat_sic:sic',
+                    'layer_name': 'patrinat:sic',
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
-                    'wfs_layers': ['patrinat_sic:sic', 'patrinat_zps:zps'],
                     'category': 'environnement',
                     'format': 'Flux WFS',
-                    'description': 'Sites d\'Intérêt Communautaire (SIC/ZSC) et Zones de Protection Spéciale (ZPS)'
+                    'description': 'Sites d\'Intérêt Communautaire et Zones de Protection Spéciale'
                 }
             ),
             DataItem(
-                item_id="preset_cours_d_eau",
-                title="Réseau Hydrographique & Cours d'eau BD TOPAGE (IGN / OFB)",
-                source="GéoPlateforme IGN / OFB",
+                item_id="preset_znieff1",
+                title="ZNIEFF Type 1 - Espaces de grand intérêt écologique (INPN)",
+                source="GéoPlateforme IGN / INPN",
                 data_type="wfs",
                 territory="France",
-                scale="commune",
+                scale="france",
                 crs="EPSG:4326",
-                date="2025 (IGN)",
+                date="2026 (INPN)",
                 url="https://data.geopf.fr/wfs/ows",
                 service_type="WFS",
                 extra={
-                    'layer_name': 'BDTOPO_V3:cours_d_eau',
+                    'layer_name': 'patrinat:znieff1',
                     'wfs_url': 'https://data.geopf.fr/wfs/ows',
                     'category': 'environnement',
                     'format': 'Flux WFS',
-                    'description': 'Tronçons hydrographiques et cours d\'eau de la BD TOPAGE'
+                    'description': 'Zones Naturelles d\'Intérêt Écologique, Faunistique et Floristique (Type 1)'
+                }
+            ),
+            DataItem(
+                item_id="preset_znieff2",
+                title="ZNIEFF Type 2 - Grands ensembles naturels (INPN)",
+                source="GéoPlateforme IGN / INPN",
+                data_type="wfs",
+                territory="France",
+                scale="france",
+                crs="EPSG:4326",
+                date="2026 (INPN)",
+                url="https://data.geopf.fr/wfs/ows",
+                service_type="WFS",
+                extra={
+                    'layer_name': 'patrinat:znieff2',
+                    'wfs_url': 'https://data.geopf.fr/wfs/ows',
+                    'category': 'environnement',
+                    'format': 'Flux WFS',
+                    'description': 'Grands ensembles naturels riches et peu modifiés (Type 2)'
                 }
             ),
 
             # =========================================================================
-            # 5. RISQUES & GÉOLOGIE (Géorisques / BRGM)
+            # 6. RISQUES NATURELS & GÉOLOGIE (BRGM, Géorisques)
             # =========================================================================
             DataItem(
                 item_id="preset_pprn_georisques",
-                title="Plans de Prévention des Risques Naturels PPRN (Géorisques / GASPAR)",
-                source="data.gouv.fr (Géorisques / BRGM)",
-                data_type="table",
-                territory="France",
-                scale="commune",
-                crs="EPSG:4326",
-                date="2025 (Temps Réel)",
-                url="https://georisques.gouv.fr/api/v1/gaspar/pprn",
-                service_type="HTTP",
-                extra={
-                    'format': 'JSON API',
-                    'category': 'risques',
-                    'description': 'Base nationale GASPAR des Plans de Prévention des Risques Naturels (inondation, argiles, séisme)'
-                }
-            ),
-            DataItem(
-                item_id="preset_carte_geologique_brgm",
-                title="Carte Géologique de la France au 1/50 000 (BRGM WMS)",
-                source="BRGM (Géoservices)",
+                title="Plans de Prévention des Risques Naturels PPRN (Géorisques)",
+                source="Géorisques / BRGM",
                 data_type="wms",
                 territory="France",
                 scale="france",
                 crs="EPSG:3857",
-                date="2025 (BRGM)",
+                date="2026",
+                url="https://georisques.gouv.fr/services",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'PPRN',
+                    'wms_url': 'https://georisques.gouv.fr/services',
+                    'category': 'risques',
+                    'format': 'Flux WMS',
+                    'description': 'Périmètres réglementaires et zonages des risques naturels (Inondations, séismes, mouvements)'
+                }
+            ),
+            DataItem(
+                item_id="preset_argiles_rga",
+                title="Aléa Retrait-Gonflement des Argiles RGA (BRGM / Géorisques)",
+                source="BRGM / Géorisques",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://georisques.gouv.fr/services",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ARGILES',
+                    'wms_url': 'https://georisques.gouv.fr/services',
+                    'category': 'risques',
+                    'format': 'Flux WMS',
+                    'description': 'Cartographie officielle de l\'aléa retrait-gonflement des sols argileux'
+                }
+            ),
+            DataItem(
+                item_id="preset_carte_geologique_brgm",
+                title="Carte Géologique de la France 1/50 000 (BRGM)",
+                source="BRGM",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
                 url="https://geoservices.brgm.fr/geologie",
                 service_type="WMS",
                 extra={
@@ -388,71 +446,16 @@ class PresetLibrary:
                     'wms_url': 'https://geoservices.brgm.fr/geologie',
                     'category': 'risques',
                     'format': 'Flux WMS',
-                    'description': 'Carte géologique vectorielle et harmonisée de la France métropolitaine au 1/50 000'
-                }
-            ),
-            DataItem(
-                item_id="preset_argiles_rga",
-                title="Aléa Retrait-Gonflement des Argiles RGA (DGALN / BRGM)",
-                source="data.gouv.fr (DGALN / BRGM)",
-                data_type="table",
-                territory="France",
-                scale="departement",
-                crs="EPSG:4326",
-                date="2025",
-                url="https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/1d6ff531-fe68-4102-9591-8da9ffdf8300/csv",
-                service_type="HTTP",
-                extra={
-                    'format': 'CSV',
-                    'category': 'risques',
-                    'description': 'Niveau d\'exposition et de vulnérabilité des communes au retrait-gonflement des sols argileux'
+                    'description': 'Carte géologique vectorielle et raster harmonisée au 1/50 000'
                 }
             ),
 
             # =========================================================================
-            # 6. ÉNERGIE & RÉSEAUX (SDES, RTE, AVERE)
-            # =========================================================================
-            DataItem(
-                item_id="preset_bornes_irve",
-                title="Bornes de Recharge Véhicules Électriques IRVE (data.gouv.fr)",
-                source="data.gouv.fr (Etalab / AVERE)",
-                data_type="table",
-                territory="France",
-                scale="france",
-                crs="EPSG:4326",
-                date="2026 (Quotidien)",
-                url="https://static.data.gouv.fr/resources/bornes-de-recharge-de-laube-irve/20180503-181544/IRVE_SDEA_20180503.csv",
-                service_type="HTTP",
-                extra={
-                    'format': 'CSV',
-                    'category': 'energie',
-                    'description': 'Fichier consolidé des points de recharge pour véhicules électriques ouverts au public'
-                }
-            ),
-            DataItem(
-                item_id="preset_registre_enr",
-                title="Installations de Production d'Énergie Renouvelable EnR (SDES)",
-                source="data.gouv.fr (SDES / RTE)",
-                data_type="table",
-                territory="France",
-                scale="commune",
-                crs="EPSG:4326",
-                date="2025",
-                url="https://opendata.edf.fr/data-fair/api/v1/datasets/registre-national-des-installations-de-production-et-de-stockage-d-electricite/convert",
-                service_type="HTTP",
-                extra={
-                    'format': 'CSV',
-                    'category': 'energie',
-                    'description': 'Parcs solaires photovoltaïques, éoliens, hydroélectriques et biométhanation géolocalisés'
-                }
-            ),
-
-            # =========================================================================
-            # 7. MOBILITÉS & TRANSPORTS (SNCF, CEREMA, Vélo & Territoires)
+            # 7. TRANSPORTS & MOBILITÉS (PAN, SNCF, BNLC)
             # =========================================================================
             DataItem(
                 item_id="preset_reseau_cyclable_bnlc",
-                title="Aménagements Cyclables & Véloroutes BNLC (Vélo & Territoires)",
+                title="Aménagements cyclables et Véloroutes (BNLC France)",
                 source="data.gouv.fr (BNLC / Cerema)",
                 data_type="file_vector",
                 territory="France",
@@ -462,60 +465,117 @@ class PresetLibrary:
                 url="https://static.data.gouv.fr/resources/amenagements-cyclables-france-metropolitaine/20260807-093353/france-20260807.geojson",
                 service_type="HTTP",
                 extra={
-                    'format': 'GEOJSON',
+                    'format': 'GeoJSON',
                     'category': 'transport',
-                    'description': 'Base Nationale des Lieux Cyclables (pistes, bandes cyclables, voies vertes, véloroutes)'
+                    'description': 'Base Nationale des Aménagements Cyclables (Pistes, bandes, voies vertes)'
                 }
             ),
             DataItem(
                 item_id="preset_reseau_ferre_sncf",
-                title="Réseau Ferré National & Gares Voyageurs (SNCF Réseau)",
-                source="data.gouv.fr (SNCF Réseau)",
+                title="Réseau Ferré National & Gares de Voyageurs (SNCF Réseau)",
+                source="SNCF Réseau Open Data",
                 data_type="file_vector",
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2025",
+                date="2026",
                 url="https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/formes-des-lignes-du-rfn/exports/geojson",
                 service_type="HTTP",
                 extra={
-                    'format': 'GEOJSON',
+                    'format': 'GeoJSON',
                     'category': 'transport',
-                    'description': 'Tracé géométrique précis des lignes ferroviaires du Réseau Ferré National'
+                    'description': 'Tracé officiel des voies ferrées, lignes et gares SNCF'
+                }
+            ),
+            DataItem(
+                item_id="preset_covoiturage_pan",
+                title="Lieux et Aires de Covoiturage (Point d'Accès National)",
+                source="transport.data.gouv.fr",
+                data_type="file_vector",
+                territory="France",
+                scale="france",
+                crs="EPSG:4326",
+                date="2026",
+                url="https://static.data.gouv.fr/resources/base-nationale-des-lieux-de-covoiturage/latest/covoiturage.geojson",
+                service_type="HTTP",
+                extra={
+                    'format': 'GeoJSON',
+                    'category': 'transport',
+                    'description': 'Base nationale consolidée des aires et points de covoiturage'
                 }
             ),
 
             # =========================================================================
-            # 8. FONDS DE CARTE & IMAGERIE (IGN, OpenStreetMap)
+            # 8. ÉNERGIE & RÉSEAUX (ODRE, RTE, SDES)
             # =========================================================================
             DataItem(
-                item_id="preset_plan_ign_v2",
-                title="Plan IGN V2 Multi-échelles (GéoPlateforme WMS)",
-                source="GéoPlateforme IGN",
-                data_type="wms",
+                item_id="preset_bornes_irve",
+                title="Bornes de Recharge Véhicules Électriques IRVE",
+                source="data.gouv.fr (Etalab / Ministère)",
+                data_type="table",
                 territory="France",
                 scale="france",
-                crs="EPSG:3857",
-                date="2025",
-                url="https://data.geopf.fr/wms-r/ows",
-                service_type="WMS",
+                crs="EPSG:4326",
+                date="2026",
+                url="https://static.data.gouv.fr/resources/fichier-consolide-des-bornes-de-recharge-pour-vehicules-electriques-irve/latest/consolidation-irve.csv",
+                service_type="HTTP",
                 extra={
-                    'layer_name': 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
-                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
-                    'category': 'raster',
-                    'format': 'Flux WMS',
-                    'description': 'Fond cartographique moderne multi-échelles officiel de l\'IGN'
+                    'format': 'CSV',
+                    'category': 'energie',
+                    'description': 'Fichier consolidé national des stations et bornes de recharge électrique'
                 }
             ),
             DataItem(
+                item_id="preset_registre_enr",
+                title="Registre des Installations de Production d'Électricité EnR",
+                source="data.gouv.fr (ODRE / Enedis / RTE)",
+                data_type="table",
+                territory="France",
+                scale="france",
+                crs="EPSG:4326",
+                date="2026",
+                url="https://odre.opendatasoft.com/api/explore/v2.1/catalog/datasets/registre-national-installation-production-stockage-electricite-agrege-commune/exports/csv",
+                service_type="HTTP",
+                extra={
+                    'format': 'CSV',
+                    'category': 'energie',
+                    'description': 'Installations solaires, éoliennes, hydrauliques et bioénergies par commune'
+                }
+            ),
+
+            # =========================================================================
+            # 9. MÉTÉO & CLIMAT (Météo-France)
+            # =========================================================================
+            DataItem(
+                item_id="preset_meteo_stations",
+                title="Stations Météorologiques & Climatologiques (Météo-France)",
+                source="meteo.data.gouv.fr",
+                data_type="table",
+                territory="France",
+                scale="france",
+                crs="EPSG:4326",
+                date="2026",
+                url="https://meteo.data.gouv.fr/api/explore/v2.1/catalog/datasets/postes-synop/exports/csv",
+                service_type="HTTP",
+                extra={
+                    'format': 'CSV',
+                    'category': 'environnement',
+                    'description': 'Réseau officiel des stations météorologiques et climatologiques de Météo-France'
+                }
+            ),
+
+            # =========================================================================
+            # 10. FONDS DE CARTE & IMAGERIE IGN (GéoPlateforme WMS-R / XYZ)
+            # =========================================================================
+            DataItem(
                 item_id="preset_ortho_ign",
-                title="Photographies Aériennes Ortho HR (GéoPlateforme WMS)",
+                title="Photographies aériennes Ortho HR® (IGN GéoPlateforme)",
                 source="GéoPlateforme IGN",
                 data_type="wms",
                 territory="France",
                 scale="france",
                 crs="EPSG:3857",
-                date="2024-2025",
+                date="2024-2026",
                 url="https://data.geopf.fr/wms-r/ows",
                 service_type="WMS",
                 extra={
@@ -523,18 +583,37 @@ class PresetLibrary:
                     'wms_url': 'https://data.geopf.fr/wms-r/ows',
                     'category': 'raster',
                     'format': 'Flux WMS',
-                    'description': 'Orthophotographies aériennes haute résolution (20 cm) de la France entière'
+                    'description': 'Mosaïque d\'orthophotographies aériennes haute résolution de l\'IGN'
                 }
             ),
             DataItem(
-                item_id="preset_scan25_ign",
-                title="Cartes Topographiques IGN SCAN 25 (GéoPlateforme WMS)",
+                item_id="preset_plan_ign",
+                title="Plan IGN V2 Multi-échelles (IGN GéoPlateforme)",
                 source="GéoPlateforme IGN",
                 data_type="wms",
                 territory="France",
                 scale="france",
                 crs="EPSG:3857",
-                date="2025",
+                date="2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Fond de carte vectoriel cartographique optimisé pour toutes les échelles'
+                }
+            ),
+            DataItem(
+                item_id="preset_scan25",
+                title="Cartes Topographiques IGN SCAN 25® (IGN GéoPlateforme)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
                 url="https://data.geopf.fr/wms-r/ows",
                 service_type="WMS",
                 extra={
@@ -542,26 +621,123 @@ class PresetLibrary:
                     'wms_url': 'https://data.geopf.fr/wms-r/ows',
                     'category': 'raster',
                     'format': 'Flux WMS',
-                    'description': 'Cartes topographiques traditionnelles IGN au 1/25 000 et 1/100 000'
+                    'description': 'Cartes topographiques de randonnée et de référence au 1/25 000'
                 }
             ),
             DataItem(
-                item_id="preset_osm_france",
-                title="Fond de carte OpenStreetMap (XYZ Standard)",
-                source="OpenStreetMap Community",
+                item_id="preset_relief_ombre",
+                title="Relief ombré & MNT RGE ALTI® (IGN GéoPlateforme)",
+                source="GéoPlateforme IGN",
                 data_type="wms",
                 territory="France",
                 scale="france",
                 crs="EPSG:3857",
-                date="Temps Réel",
+                date="2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Modèle Numérique de Terrain ombré issu du RGE ALTI'
+                }
+            ),
+            DataItem(
+                item_id="preset_osm_france",
+                title="Fond de carte OpenStreetMap France (XYZ)",
+                source="OpenStreetMap",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
                 url="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'osm',
-                    'wms_url': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    'category': 'raster',
                     'format': 'Tuiles XYZ',
-                    'description': 'Fond de plan cartographique mondial et communautaire OpenStreetMap'
+                    'category': 'raster',
+                    'description': 'Tuiles cartographiques mondiales et collaboratives OpenStreetMap'
+                }
+            ),
+
+            # =========================================================================
+            # 11. RÉGIONS & CATALOGUES CRIGE (PIGMA, GéoBretagne, Geo2France, CRAIG...)
+            # =========================================================================
+            DataItem(
+                item_id="preset_crige_pigma",
+                title="PIGMA - Plateforme Publique Nouvelle-Aquitaine (WMS)",
+                source="PIGMA (CRIGE Nouvelle-Aquitaine)",
+                data_type="wms",
+                territory="Nouvelle-Aquitaine",
+                scale="region",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://www.pigma.org/geoserver/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'pigma:pigma_default',
+                    'wms_url': 'https://www.pigma.org/geoserver/ows',
+                    'category': 'admin',
+                    'format': 'Flux WMS',
+                    'description': 'Plateforme d\'échange de données géographiques de Nouvelle-Aquitaine'
+                }
+            ),
+            DataItem(
+                item_id="preset_crige_geobretagne",
+                title="GéoBretagne - Plateforme Régionale d'Information Géographique (WMS)",
+                source="GéoBretagne (Région Bretagne)",
+                data_type="wms",
+                territory="Bretagne",
+                scale="region",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://geobretagne.fr/geoserver/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'bretagne_default',
+                    'wms_url': 'https://geobretagne.fr/geoserver/ows',
+                    'category': 'admin',
+                    'format': 'Flux WMS',
+                    'description': 'Infrastructure de données spatiales partenariale en Bretagne'
+                }
+            ),
+            DataItem(
+                item_id="preset_crige_geo2france",
+                title="Geo2France - Plateforme Régionale Hauts-de-France (WMS)",
+                source="Geo2France (Région Hauts-de-France)",
+                data_type="wms",
+                territory="Hauts-de-France",
+                scale="region",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://www.geo2france.fr/geoserver/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'geo2france_default',
+                    'wms_url': 'https://www.geo2france.fr/geoserver/ows',
+                    'category': 'admin',
+                    'format': 'Flux WMS',
+                    'description': 'Plateforme régionale de données géographiques des Hauts-de-France'
+                }
+            ),
+            DataItem(
+                item_id="preset_crige_craig",
+                title="CRAIG - Centre Régional Auvergne-Rhône-Alpes (WMS)",
+                source="CRAIG (Auvergne-Rhône-Alpes)",
+                data_type="wms",
+                territory="Auvergne-Rhône-Alpes",
+                scale="region",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://www.craig.fr/geoserver/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'craig_default',
+                    'wms_url': 'https://www.craig.fr/geoserver/ows',
+                    'category': 'admin',
+                    'format': 'Flux WMS',
+                    'description': 'Données géographiques de référence pour Auvergne-Rhône-Alpes'
                 }
             )
         ]

@@ -108,12 +108,12 @@ class NLPSearchEngine:
     THEMATIC_EMBEDDINGS = {
         "cadastre": {
             "label": "Foncier & Cadastre",
-            "synonyms": ["cadastre", "cadastral", "parcelle", "parcelles", "parcellaire", "section", "foncier", "propriete", "terrain", "terrains", "pci", "dgfip", "etalab", "matrice"],
-            "presets": ["preset_pci_wms_ign", "preset_pci_beauvais"]
+            "synonyms": ["cadastre", "cadastral", "parcelle", "parcelles", "parcellaire", "section", "sections", "foncier", "propriete", "terrain", "terrains", "pci", "dgfip", "etalab", "matrice", "subdivision"],
+            "presets": ["preset_pci_wms_ign"]
         },
         "urbanisme": {
             "label": "Urbanisme & PLU",
-            "synonyms": ["plu", "plui", "pos", "zonage", "zones", "zone urba", "zone urbaine", "reglement", "urbanisme", "scot", "sup", "servitude", "servitudes", "gpu", "cnig", "carte communale"],
+            "synonyms": ["plu", "plui", "pos", "zonage", "zones", "zone urba", "zone urbaine", "reglement", "urbanisme", "scot", "sup", "servitude", "servitudes", "gpu", "cnig", "carte communale", "secteur cc"],
             "presets": ["preset_gpu_zones_urba", "preset_gpu_sup", "preset_gpu_carte_nationale"]
         },
         "batiment": {
@@ -123,33 +123,38 @@ class NLPSearchEngine:
         },
         "transport": {
             "label": "Transports & Mobilités",
-            "synonyms": ["velo", "velos", "cyclable", "cyclables", "piste", "pistes", "voie verte", "veloroute", "gare", "gares", "train", "trains", "sncf", "ferroviaire", "transport", "transports", "bus", "ligne", "lignes", "bnlc"],
-            "presets": ["preset_reseau_cyclable_bnlc", "preset_reseau_ferre_sncf"]
+            "synonyms": ["velo", "velos", "cyclable", "cyclables", "piste", "pistes", "voie verte", "veloroute", "gare", "gares", "train", "trains", "sncf", "ferroviaire", "transport", "transports", "bus", "ligne", "lignes", "bnlc", "covoiturage", "pan", "gtfs", "netex", "navette", "arret", "arrets", "station"],
+            "presets": ["preset_reseau_cyclable_bnlc", "preset_reseau_ferre_sncf", "preset_covoiturage_pan", "preset_bdtopo_routes"]
         },
         "environnement": {
             "label": "Environnement & Nature",
-            "synonyms": ["znieff", "natura", "natura2000", "biodiversite", "ecologique", "cours d eau", "cours d'eau", "riviere", "fleuve", "eau", "foret", "naturel", "nature", "topage", "inpn", "ofb"],
-            "presets": ["preset_znieff1", "preset_znieff2", "preset_natura2000", "preset_cours_d_eau"]
+            "synonyms": ["znieff", "natura", "natura2000", "biodiversite", "ecologique", "cours d eau", "cours d'eau", "riviere", "fleuve", "eau", "foret", "bois", "vegetation", "naturel", "nature", "topage", "inpn", "ofb", "patrinat", "onf", "corine", "appb"],
+            "presets": ["preset_znieff1", "preset_znieff2", "preset_natura2000", "preset_cours_d_eau", "preset_bd_foret"]
         },
         "risques": {
             "label": "Risques Naturels & Géologie",
-            "synonyms": ["risque", "risques", "inondation", "inondations", "pprn", "argile", "argiles", "rga", "seisme", "mouvement de terrain", "geologie", "geologique", "gaspar", "georisques", "brgm", "alea", "inondable"],
+            "synonyms": ["risque", "risques", "inondation", "inondations", "pprn", "argile", "argiles", "rga", "seisme", "mouvement de terrain", "geologie", "geologique", "gaspar", "georisques", "brgm", "alea", "inondable", "tri", "radon"],
             "presets": ["preset_pprn_georisques", "preset_argiles_rga", "preset_carte_geologique_brgm"]
         },
         "energie": {
             "label": "Énergie & Réseaux",
-            "synonyms": ["borne", "bornes", "recharge", "irve", "electrique", "solaire", "photovoltaique", "eolien", "eoliens", "enr", "energie", "electricite", "station", "chargeur"],
+            "synonyms": ["borne", "bornes", "recharge", "irve", "electrique", "solaire", "photovoltaique", "eolien", "eoliens", "enr", "energie", "electricite", "station", "chargeur", "rte", "enedis", "odre"],
             "presets": ["preset_bornes_irve", "preset_registre_enr"]
+        },
+        "meteo": {
+            "label": "Météo & Climat",
+            "synonyms": ["meteo", "climat", "temperature", "pluie", "precipitations", "vent", "station meteo", "synop", "meteofrance", "climatologie"],
+            "presets": ["preset_meteo_stations"]
         },
         "admin": {
             "label": "Administratif & Démographie",
-            "synonyms": ["commune", "communes", "departement", "departements", "region", "regions", "epci", "intercommunalite", "iris", "population", "insee", "sirene", "entreprise", "adminexpress", "cog", "limite", "frontiere"],
-            "presets": ["preset_communes_france", "preset_departements_france", "preset_regions_france", "preset_epci_france", "preset_iris_france", "preset_insee_cog"]
+            "synonyms": ["commune", "communes", "departement", "departements", "region", "regions", "epci", "intercommunalite", "iris", "population", "insee", "sirene", "entreprise", "adminexpress", "cog", "limite", "frontiere", "crige", "pigma", "geobretagne", "geo2france", "craig"],
+            "presets": ["preset_communes_france", "preset_departements_france", "preset_regions_france", "preset_epci_france", "preset_iris_france", "preset_insee_cog", "preset_insee_sirene", "preset_crige_pigma", "preset_crige_geobretagne", "preset_crige_geo2france", "preset_crige_craig"]
         },
         "raster": {
             "label": "Fonds de Carte & Imagerie",
-            "synonyms": ["ortho", "orthophoto", "photo", "photos", "aerienne", "aeriennes", "satellite", "fond", "fond de carte", "scan25", "topographique", "osm", "openstreetmap", "plan ign", "vue aerienne", "imagerie"],
-            "presets": ["preset_ortho_ign", "preset_plan_ign_v2", "preset_scan25_ign", "preset_osm_france"]
+            "synonyms": ["ortho", "orthophoto", "photo", "photos", "aerienne", "aeriennes", "satellite", "fond", "fond de carte", "scan25", "topographique", "osm", "openstreetmap", "plan ign", "vue aerienne", "imagerie", "relief", "mnt", "rge alti", "ombre"],
+            "presets": ["preset_ortho_ign", "preset_plan_ign", "preset_scan25", "preset_relief_ombre", "preset_osm_france"]
         }
     }
 
@@ -178,10 +183,9 @@ class NLPSearchEngine:
             desc_norm = normalize_text(p.extra.get('description', ''))
             cat = p.extra.get('category', '').lower()
 
-            # Expansion sémantique basée sur la catégorie et les mots clés
             expanded_terms = []
             for theme_key, theme_data in self.THEMATIC_EMBEDDINGS.items():
-                if theme_key in cat or any(syn in title_norm or syn in desc_norm for syn in theme_data["synonyms"][:4]):
+                if theme_key in cat or any(syn in title_norm or syn in desc_norm for syn in theme_data["synonyms"][:5]):
                     expanded_terms.extend(theme_data["synonyms"])
 
             full_text = f"{title_norm} {desc_norm} {' '.join(expanded_terms)}"
@@ -277,10 +281,7 @@ class NLPSearchEngine:
         for t in terr_tokens:
             cleaned = re.sub(rf'\b{re.escape(t)}\b', ' ', cleaned, flags=re.IGNORECASE)
 
-        # Nettoyage des motifs spatiaux
         cleaned = re.sub(r'\b(?:à|a|dans|sur|vers|pour|en|autour de|près de|commune de|ville de|département de)\b', ' ', cleaned, flags=re.IGNORECASE)
-
-        # Découpage sur les conjonctions
         raw_clauses = re.split(r'\b(?:et|avec|ainsi que|plus|sans|,|;)\b', cleaned, flags=re.IGNORECASE)
         clauses = [c.strip() for c in raw_clauses if len(c.strip()) > 1]
         return clauses if clauses else [raw_query]
@@ -307,11 +308,9 @@ class NLPSearchEngine:
             best_kw_sim = 0.0
             for kw in theme_data["synonyms"]:
                 norm_kw = normalize_text(kw)
-                # Correspondance par mot entier (Word boundary)
                 if re.search(rf'\b{re.escape(norm_kw)}\b', clause_norm):
                     best_kw_sim = max(best_kw_sim, 1.0)
                     break
-                # Fuzzy token matching (gestion des fautes de frappe comme "parcele", "batiman", "ciclable")
                 for w in clause_words:
                     if len(w) >= 4 and len(norm_kw) >= 4:
                         ratio = difflib.SequenceMatcher(None, w, norm_kw).ratio()
@@ -357,7 +356,7 @@ class NLPSearchEngine:
                 nom_dep = self.DEPARTEMENTS[dep_code].capitalize()
                 return dep_code.upper(), f"Département {nom_dep} ({dep_code.upper()})", "departement", terr_tokens
 
-        # 3. Détection par nom de département dans la phrase avec tolérance aux fautes
+        # 3. Détection par nom de département dans la phrase
         for dep_code, dep_nom in self.DEPARTEMENTS.items():
             if f" {dep_nom} " in f" {norm_q} " or norm_q.endswith(f" {dep_nom}") or norm_q.startswith(f"{dep_nom} "):
                 for tok in dep_nom.split():
@@ -375,7 +374,6 @@ class NLPSearchEngine:
         spatial_match = re.search(r'(?:à|a|de|sur|vers|dans|autour de|près de|commune de|ville de)\s+([a-zA-ZÀ-ÿ\-\'\s]+)', raw_query, re.IGNORECASE)
         if spatial_match:
             trailing = spatial_match.group(1).strip()
-            # Tronquer aux conjonctions/prépositions suivantes
             sub = re.split(r'\b(?:avec|et|pour|sans|ainsi|plus|dans|sur|le|la|les|du|des|un|une)\b', trailing, flags=re.IGNORECASE)[0].strip()
             words_sub = sub.split()
             candidates = []
@@ -388,7 +386,7 @@ class NLPSearchEngine:
 
             for candidate in candidates:
                 cand_norm = normalize_text(candidate)
-                if len(cand_norm) >= 2 and not any(cand_norm.startswith(kw) for kw in ["cadastre", "plu", "batiment", "velo", "train", "photo", "risque", "borne", "carte"]):
+                if len(cand_norm) >= 2 and not any(cand_norm.startswith(kw) for kw in ["cadastre", "plu", "batiment", "velo", "train", "photo", "risque", "borne", "carte", "meteo"]):
                     commune_info = self._query_geoapi_commune(nom=candidate)
                     if commune_info:
                         for tok in cand_norm.split():
@@ -398,7 +396,7 @@ class NLPSearchEngine:
         # 6. Test direct des mots en fin de phrase
         if words:
             last_word = words[-1]
-            if len(last_word) >= 3 and last_word not in {"france", "carte", "donnees", "couche", "plu", "wms", "wfs", "ign", "photo"}:
+            if len(last_word) >= 3 and last_word not in {"france", "carte", "donnees", "couche", "plu", "wms", "wfs", "ign", "photo", "meteo"}:
                 commune_info = self._query_geoapi_commune(nom=last_word)
                 if commune_info:
                     terr_tokens.add(last_word)
