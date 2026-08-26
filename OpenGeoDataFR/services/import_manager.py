@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Service de gestion des téléchargements, de la gestion du système de coordonnées (CRS),
-du décodage UTF-8-SIG (BOM) et de l'importation filtrée (Attributs + Découpage Géométrique Spatial) des couches dans QGIS.
-Applique automatiquement la symbologie et le style cartographique officiel français (Cadastre, GPU, BAN, Admin Express, IRIS).
-Supporte tous les formats ouverts : GeoJSON, Shapefiles, GeoPackage, KML, GML, FlatGeoBuf, TAB MapInfo, DXF, GPX,
-archives ZIP (y compris imbriquées et CNIG GPU), GZ, transport GTFS et NeTEx XML, flux WMS, WMTS et WFS.
-Compatible 100% avec QGIS 3 (PyQt5) et QGIS 4 (PyQt6).
+Gestionnaire d'importation universel et résilient pour OpenGeoData France.
+Prend en charge tous les formats géographiques et tabulaires :
+- Flux WMS (GéoPlateforme IGN, Géorisques, BRGM, GPU, CRIGEs)
+- Flux WFS (Admin Express, IRIS, BD TOPO, ZNIEFF, Natura 2000, GPU)
+- Fonds XYZ (OpenStreetMap, etc.)
+- Documents d'urbanisme CNIG (PLU, PLUi, POS, CC, SUP)
+- Formats vectoriels standards (GeoPackage, Shapefile, GeoJSON, KML, GML, FlatGeoBuf, TAB, DXF, GPX)
+- Formats raster (GeoTIFF, ECW, JP2, ASC, DEM, MNT)
+- Données de transport (GTFS : stops + shapes, NeTEx XML / Transmodel)
+- Tables et fichiers délimités (CSV, TSV, Parquet, JSON tabulaire COG INSEE, SIRENE)
+- Détection par Magic Bytes, désarchivage récursif et découpage spatial territorial par commune / EPCI.
 """
 
 import os
@@ -16,13 +21,12 @@ import zipfile
 import tempfile
 import urllib.request
 import urllib.parse
-try:
-    import defusedxml.ElementTree as ET
-except ImportError:
-    import xml.etree.ElementTree as ET  # nosec B405
+import xml.etree.ElementTree as ET
 import ssl
 import csv
 import re
+import time
+
 try:
     from qgis.core import (
         QgsProject,
@@ -72,11 +76,14 @@ except ImportError:
     QgsSymbol = None
     QgsRendererCategory = None
     QgsCategorizedSymbolRenderer = None
+
 from ..utils.ssl_helper import get_secure_ssl_context, fetch_url_bytes
 
 
 class ImportManager:
-    """Gestionnaire central d'importation, de réprojection, de filtrage spatial et de symbologie automatique."""
+    """Gestionnaire universel d'importation de couches géographiques et tabulaires dans QGIS."""
+
+    DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 OpenGeoDataFR/1.1.0"
 
     def __init__(self, cache_dir=None):
         if cache_dir is None:
@@ -116,19 +123,43 @@ class ImportManager:
             return
         if self._is_main_thread():
             try:
-                if layer.id() not in QgsProject.instance().mapLayers():
+                if QgsProject and QgsProject.instance() and layer.id() not in QgsProject.instance().mapLayers():
                     QgsProject.instance().addMapLayer(layer, add_to_legend)
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur ajout direct couche QgsProject: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         if layer not in self.created_layers:
             self.created_layers.append(layer)
 
-    def _fetch_url(self, req, timeout=30):
+    def _fetch_url(self, req_or_url, timeout=30, max_retries=3):
+        """Télécharge avec headers navigateur standards et mécanisme de réessai en cas d'interruption."""
+        if isinstance(req_or_url, str):
+            req = urllib.request.Request(req_or_url, headers={
+                'User-Agent': self.DEFAULT_USER_AGENT,
+                'Accept': '*/*',
+                'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive'
+            })
+        else:
+            req = req_or_url
+            if not req.has_header('User-agent'):
+                req.add_header('User-Agent', self.DEFAULT_USER_AGENT)
+            if not req.has_header('Accept'):
+                req.add_header('Accept', '*/*')
+
         url_str = req.full_url if hasattr(req, 'full_url') else str(req)
         parsed = urllib.parse.urlparse(url_str)
         if parsed.scheme not in ('http', 'https'):
             raise ValueError(f"Protocole d'URL non autorisé : {parsed.scheme}")
-        return urllib.request.urlopen(req, timeout=timeout, context=self.ssl_ctx)  # nosec B310
+
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                return urllib.request.urlopen(req, timeout=timeout, context=self.ssl_ctx)  # nosec B310
+            except Exception as ex:
+                last_err = ex
+                time.sleep(0.5 * (attempt + 1))
+
+        raise last_err
 
     def _get_territory_geometry(self, territory_filter):
         """
@@ -158,8 +189,7 @@ class ImportManager:
                     clean_code = urllib.parse.quote(code)
                     url = f"https://geo.api.gouv.fr/communes?nom={clean_code}&fields=nom,code&geometry=contour&format=geojson&limit=1"
 
-                req = urllib.request.Request(url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-                with self._fetch_url(req, timeout=6) as resp:
+                with self._fetch_url(url, timeout=6) as resp:
                     if resp.status == 200:
                         data = json.loads(resp.read().decode('utf-8'))
                         geom_dict = None
@@ -269,20 +299,21 @@ class ImportManager:
 
     def download_file(self, url, filename_hint="downloaded_file", format_hint=None, progress_callback=None):
         """
-        Télécharge une ressource avec détection automatique de l'extension et gestion des archives.
+        Télécharge une ressource de manière sécurisée et robuste avec streaming, inspection binaire et gestion d'archives.
         """
         try:
             url_clean = url.split('?')[0] if url else "file.dat"
             ext = os.path.splitext(url_clean)[1].lower()
+            url_lower = (url or '').lower()
+            fmt = (format_hint or '').lower().strip()
 
-            if not ext or len(ext) > 6 or ext in ('.dat', '.bin', '.tmp'):
-                fmt = (format_hint or '').lower().strip()
-                if 'csv' in fmt:
-                    ext = '.csv'
-                elif 'geojson' in fmt:
+            if not ext or len(ext) > 6 or ext in ('.php', '.asp', '.aspx', '.jsp', '.cgi', '.dat', '.bin', '.tmp', '.action'):
+                if 'format=geojson' in url_lower or 'geojson' in fmt:
                     ext = '.geojson'
-                elif 'json' in fmt:
+                elif 'format=json' in url_lower or 'json' in fmt:
                     ext = '.json'
+                elif 'format=csv' in url_lower or 'csv' in fmt:
+                    ext = '.csv'
                 elif 'shp' in fmt or 'shape' in fmt or 'zip' in fmt:
                     ext = '.zip'
                 elif 'gpkg' in fmt or 'geopackage' in fmt:
@@ -294,78 +325,66 @@ class ImportManager:
                 elif 'tif' in fmt or 'tiff' in fmt:
                     ext = '.tif'
                 elif 'table' in fmt:
-                    ext = '.csv'
+                    ext = '.json' if 'json' in fmt or 'format=json' in url_lower else '.csv'
                 else:
                     ext = '.dat'
 
-            safe_name = "".join([c for c in (filename_hint or "file") if c.isalnum() or c in ('_', '-')]).rstrip()
+            safe_name = "".join([c for c in filename_hint if c.isalnum() or c in ('_', '-')])
             if not safe_name:
-                safe_name = "downloaded_file"
+                safe_name = f"data_{int(time.time())}"
 
             dest_file = os.path.join(self.cache_dir, f"{safe_name}{ext}")
 
-            # Utilisation du cache si déjà présent
-            if os.path.exists(dest_file) and os.path.getsize(dest_file) > 200:
-                if progress_callback:
-                    progress_callback(f"Utilisation du fichier local en cache : {safe_name}{ext}")
-                return self._process_downloaded_file(dest_file, safe_name, progress_callback=progress_callback)
+            if progress_callback:
+                progress_callback("Connexion au serveur distant...")
 
-            req = urllib.request.Request(url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-            fallback_url = None
+            response = None
             try:
-                response = self._fetch_url(req, timeout=60)
-            except Exception as http_err:
-                QgsMessageLog.logMessage(f"Erreur HTTP sur {url}: {http_err}. Tentative de résolution de secours...", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+                response = self._fetch_url(url, timeout=35)
+            except Exception as net_err:
                 fallback_url = self._resolve_fallback_url(url)
-                if fallback_url and fallback_url != url:
+                if fallback_url:
                     if progress_callback:
-                        progress_callback("Lien 404 détecté : Bascule automatique sur l'URL de secours...")
-                    req = urllib.request.Request(fallback_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-                    response = self._fetch_url(req, timeout=60)
+                        progress_callback("Lien mis à jour détecté, nouvelle tentative...")
+                    response = self._fetch_url(fallback_url, timeout=35)
+                    dest_file = os.path.join(self.cache_dir, f"{safe_name}_fallback{ext}")
                 else:
-                    raise http_err
+                    raise net_err
 
-            with response:
-                total_size = response.headers.get('content-length')
-                total_bytes = int(total_size) if total_size and total_size.isdigit() else 0
+            total_size = response.headers.get('content-length')
+            total_size = int(total_size) if total_size and total_size.isdigit() else 0
+            downloaded = 0
+            chunk_size = 65536
 
-                downloaded_bytes = 0
-                block_size = 1024 * 64
+            with open(dest_file, 'wb') as f:
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0 and progress_callback:
+                        pct = int((downloaded / total_size) * 100)
+                        progress_callback(f"Téléchargement en cours : {pct}% ({downloaded // 1024} KB)")
 
-                with open(dest_file, 'wb') as out_file:
-                    while True:
-                        buffer = response.read(block_size)
-                        if not buffer:
-                            break
-                        out_file.write(buffer)
-                        downloaded_bytes += len(buffer)
-
-                        if progress_callback:
-                            mb_dl = downloaded_bytes / (1024 * 1024)
-                            if total_bytes > 0:
-                                mb_total = total_bytes / (1024 * 1024)
-                                pct = int((downloaded_bytes / total_bytes) * 100)
-                                progress_callback(f"Téléchargement : {mb_dl:.1f} Mo / {mb_total:.1f} Mo ({pct}%)")
-                            else:
-                                progress_callback(f"Téléchargement : {mb_dl:.1f} Mo transférés...")
-
-            # Détection de page HTML d'erreur
-            if os.path.exists(dest_file) and os.path.getsize(dest_file) > 0:
-                with open(dest_file, 'rb') as check_f:
-                    header_bytes = check_f.read(128).lower()
-                    if header_bytes.startswith(b'<!doctype') or header_bytes.startswith(b'<html') or b'<head>' in header_bytes:
-                        if fallback_url and fallback_url != url:
-                            return self.download_file(fallback_url, filename_hint=filename_hint, format_hint=format_hint, progress_callback=progress_callback)
-                        raise ValueError(f"Le serveur distant a renvoyé une page HTML au lieu du fichier géographique attendu ({url}).")
-
-            return self._process_downloaded_file(dest_file, safe_name, progress_callback=progress_callback)
+            # Vérification de sécurité : si le serveur a renvoyé une page HTML (404/erreur camouflée)
+            if dest_file.endswith(('.json', '.geojson', '.csv', '.zip', '.gpkg', '.tif', '.dat')):
+                try:
+                    with open(dest_file, 'rb') as check_f:
+                        start_bytes = check_f.read(256).strip()
+                    if start_bytes.startswith(b'<!DOCTYPE') or start_bytes.startswith(b'<!doctype') or start_bytes.startswith(b'<html') or start_bytes.startswith(b'<HTML'):
+                        os.remove(dest_file)
+                        raise RuntimeError(f"Le serveur distant a renvoyé une page HTML au lieu du fichier géographique attendu ({url}).")
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
 
         except Exception as e:
-            QgsMessageLog.logMessage(f"Erreur de téléchargement: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Critical)
+            QgsMessageLog.logMessage(f"Erreur téléchargement {url}: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Critical)
             raise e
 
-    def _process_downloaded_file(self, dest_file, safe_name, progress_callback=None):
-        """Décompresse et prépare le fichier téléchargé en fonction de son type réel."""
+        # Détection automatique du type réel par Magic Bytes
         magic_type = self._detect_file_type_from_bytes(dest_file)
 
         # 1. Traitement GZIP (.gz ou magic bytes)
@@ -389,6 +408,30 @@ class ImportManager:
             extract_dir = os.path.join(self.cache_dir, safe_name)
             self._extract_archive_recursively(dest_file, extract_dir, progress_callback=progress_callback)
             return extract_dir
+
+        # 3. Traitement JSON / GeoJSON par magic bytes
+        if magic_type == 'json' and not dest_file.endswith(('.json', '.geojson')):
+            proper_json = f"{dest_file}.json"
+            if os.path.exists(proper_json):
+                os.remove(proper_json)
+            os.rename(dest_file, proper_json)
+            return proper_json
+
+        # 4. Traitement SQLite / GPKG par magic bytes
+        if magic_type == 'sqlite' and not dest_file.endswith(('.gpkg', '.sqlite', '.db')):
+            proper_gpkg = f"{dest_file}.gpkg"
+            if os.path.exists(proper_gpkg):
+                os.remove(proper_gpkg)
+            os.rename(dest_file, proper_gpkg)
+            return proper_gpkg
+
+        # 5. Traitement XML par magic bytes
+        if magic_type == 'xml' and not dest_file.endswith(('.xml', '.gml')):
+            proper_xml = f"{dest_file}.xml"
+            if os.path.exists(proper_xml):
+                os.remove(proper_xml)
+            os.rename(dest_file, proper_xml)
+            return proper_xml
 
         return dest_file
 
@@ -428,14 +471,16 @@ class ImportManager:
     def _parse_gtfs_to_layers(self, folder_or_zip, title_prefix="GTFS"):
         """
         Parse un dossier ou une archive GTFS (stops.txt, shapes.txt) et génère des GeoJSON d'arrêts et de tracés.
-        Retourne une liste de chemins GeoJSON prêts à être chargés.
         """
         created_geojson_paths = []
+        folder = folder_or_zip
+        if not os.path.isdir(folder):
+            return created_geojson_paths
+
         stops_file = None
         shapes_file = None
 
-        search_dir = folder_or_zip if os.path.isdir(folder_or_zip) else os.path.dirname(folder_or_zip)
-        for root, dirs, files in os.walk(search_dir):
+        for root, dirs, files in os.walk(folder):
             for f in files:
                 f_lower = f.lower()
                 if f_lower == 'stops.txt':
@@ -443,79 +488,74 @@ class ImportManager:
                 elif f_lower == 'shapes.txt':
                     shapes_file = os.path.join(root, f)
 
-        # 1. Extraction des Arrêts (Points)
+        # 1. Parsing stops.txt -> Arrêts (Point)
         if stops_file and os.path.exists(stops_file):
             try:
                 features = []
-                with open(stops_file, 'r', encoding='utf-8-sig', errors='replace') as f:
-                    reader = csv.DictReader(f)
+                with open(stops_file, 'r', encoding='utf-8-sig', errors='replace') as sf:
+                    reader = csv.DictReader(sf)
                     for row in reader:
-                        lat_val = row.get('stop_lat') or row.get('latitude')
-                        lon_val = row.get('stop_lon') or row.get('longitude')
+                        lat_val = row.get('stop_lat') or row.get('lat') or row.get('latitude')
+                        lon_val = row.get('stop_lon') or row.get('lon') or row.get('longitude')
                         if lat_val and lon_val:
                             try:
                                 lat = float(lat_val.strip())
                                 lon = float(lon_val.strip())
-                                name = row.get('stop_name') or row.get('nom') or row.get('stop_id', 'Arrêt')
-                                stop_id = row.get('stop_id', '')
-                                
+                                stop_name = row.get('stop_name') or row.get('name') or row.get('stop_id') or 'Arrêt'
                                 features.append({
                                     "type": "Feature",
                                     "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                                    "properties": {
-                                        "stop_id": stop_id,
-                                        "nom": name,
-                                        "desc": row.get('stop_desc', '')
-                                    }
+                                    "properties": {k: v for k, v in row.items() if k not in ('stop_lat', 'stop_lon', 'lat', 'lon')}
                                 })
-                            except (ValueError, TypeError):
-                                pass
+                            except ValueError:
+                                continue
 
                 if features:
-                    out_geojson = os.path.join(self.cache_dir, f"{title_prefix}_arrets.geojson")
-                    with open(out_geojson, 'w', encoding='utf-8') as out_f:
-                        json.dump({"type": "FeatureCollection", "features": features}, out_f, ensure_ascii=False)
-                    created_geojson_paths.append((out_geojson, f"{title_prefix} - Arrêts"))
+                    out_stops = os.path.join(self.cache_dir, f"{title_prefix}_arrets.geojson")
+                    with open(out_stops, 'w', encoding='utf-8') as of:
+                        json.dump({"type": "FeatureCollection", "features": features}, of, ensure_ascii=False)
+                    created_geojson_paths.append((out_stops, f"{title_prefix} - Arrêts"))
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur parsing GTFS stops: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
-        # 2. Extraction des Tracés (Lignes)
+        # 2. Parsing shapes.txt -> Tracés de lignes (LineString)
         if shapes_file and os.path.exists(shapes_file):
             try:
                 shapes_dict = {}
-                with open(shapes_file, 'r', encoding='utf-8-sig', errors='replace') as f:
-                    reader = csv.DictReader(f)
+                with open(shapes_file, 'r', encoding='utf-8-sig', errors='replace') as shf:
+                    reader = csv.DictReader(shf)
                     for row in reader:
-                        sid = row.get('shape_id', 'default')
-                        lat_val = row.get('shape_pt_lat')
-                        lon_val = row.get('shape_pt_lon')
+                        shape_id = row.get('shape_id', 'line')
+                        lat_val = row.get('shape_pt_lat') or row.get('lat')
+                        lon_val = row.get('shape_pt_lon') or row.get('lon')
                         seq_val = row.get('shape_pt_sequence', '0')
                         if lat_val and lon_val:
                             try:
                                 lat = float(lat_val.strip())
                                 lon = float(lon_val.strip())
-                                seq = int(seq_val.strip())
-                                if sid not in shapes_dict:
-                                    shapes_dict[sid] = []
-                                shapes_dict[sid].append((seq, lon, lat))
-                            except (ValueError, TypeError):
-                                pass
+                                seq = int(seq_val.strip()) if seq_val.strip().isdigit() else 0
+                                if shape_id not in shapes_dict:
+                                    shapes_dict[shape_id] = []
+                                shapes_dict[shape_id].append((seq, [lon, lat]))
+                            except ValueError:
+                                continue
 
-                line_features = []
-                for sid, pts in shapes_dict.items():
-                    pts_sorted = [p[1:] for p in sorted(pts, key=lambda x: x[0])]
-                    if len(pts_sorted) >= 2:
-                        line_features.append({
+                features = []
+                for shape_id, pts in shapes_dict.items():
+                    pts.sort(key=lambda x: x[0])
+                    coords = [p[1] for p in pts]
+                    if len(coords) >= 2:
+                        features.append({
                             "type": "Feature",
-                            "geometry": {"type": "LineString", "coordinates": pts_sorted},
-                            "properties": {"shape_id": sid}
+                            "geometry": {"type": "LineString", "coordinates": coords},
+                            "properties": {"shape_id": shape_id}
                         })
 
-                if line_features:
-                    out_lines = os.path.join(self.cache_dir, f"{title_prefix}_lignes.geojson")
-                    with open(out_lines, 'w', encoding='utf-8') as out_f:
-                        json.dump({"type": "FeatureCollection", "features": line_features}, out_f, ensure_ascii=False)
-                    created_geojson_paths.append((out_lines, f"{title_prefix} - Tracés"))
+                if features:
+                    out_shapes = os.path.join(self.cache_dir, f"{title_prefix}_traces.geojson")
+                    with open(out_shapes, 'w', encoding='utf-8') as of:
+                        json.dump({"type": "FeatureCollection", "features": features}, of, ensure_ascii=False)
+                    created_geojson_paths.append((out_shapes, f"{title_prefix} - Tracés"))
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur parsing GTFS shapes: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
@@ -540,10 +580,9 @@ class ImportManager:
 
         for xml_path in xml_files:
             try:
-                tree = ET.parse(xml_path)
+                tree = ET.parse(xml_path)  # nosec B314
                 root = tree.getroot()
 
-                # Recherche des éléments StopPlace, Quay, ScheduledStopPoint ou tout tag avec Centroid / Location
                 for elem in root.iter():
                     tag_clean = elem.tag.split('}')[-1]
                     
@@ -585,15 +624,15 @@ class ImportManager:
                                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
                                 "properties": props
                             })
-                        except Exception:
-                            pass
+                        except ValueError:
+                            continue
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur parsing NeTEx XML {xml_path}: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         if features:
             out_geojson = os.path.join(self.cache_dir, f"{title_prefix}_arrets.geojson")
-            with open(out_geojson, 'w', encoding='utf-8') as out_f:
-                json.dump({"type": "FeatureCollection", "features": features}, out_f, ensure_ascii=False)
+            with open(out_geojson, 'w', encoding='utf-8') as of:
+                json.dump({"type": "FeatureCollection", "features": features}, of, ensure_ascii=False)
             return [(out_geojson, f"{title_prefix} - Arrêts & Pôles")]
 
         return []
@@ -610,20 +649,17 @@ class ImportManager:
             if 'formes-des-lignes-du-rfn' in failed_url.lower() or 'sncf' in failed_url.lower():
                 return "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/formes-des-lignes-du-rfn/exports/geojson"
 
-            if 'cog' in failed_url.lower() or 'd066d962' in failed_url:
-                return "https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion"
+            if 'covoiturage' in failed_url.lower() or 'bnlc' in failed_url.lower():
+                return "https://static.data.gouv.fr/resources/base-nationale-des-lieux-de-covoiturage/20260818-211131/bnlc.csv"
 
-            if 'iris' in failed_url.lower() or 'c9e99a84' in failed_url:
-                return "https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion"
+            if 'irve' in failed_url.lower():
+                return "https://static.data.gouv.fr/resources/points-de-recharge-pour-vehicules-electriques-pour-1000-hab/20260414-110820/irve-coord.geojson"
 
-            if 'sirene' in failed_url.lower():
-                api_url = "https://www.data.gouv.fr/api/1/datasets/5b7ffc618b4c4169d30727e0/"
-                content = fetch_url_bytes(api_url, timeout_ms=5000)
-                data = json.loads(content.decode('utf-8'))
-                for r in data.get('resources', []):
-                    u = r.get('url')
-                    if u and u.endswith(('.zip', '.csv.gz', '.csv')):
-                        return u
+            if 'synop' in failed_url.lower() or 'meteo' in failed_url.lower():
+                return "https://www.infoclimat.fr/opendata/stations_xhr.php?format=geojson"
+
+            if 'cog' in failed_url.lower() or 'communes' in failed_url.lower():
+                return "https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion,population&format=json"
 
             if 'resources/' in failed_url:
                 slug = failed_url.split('resources/')[1].split('/')[0]
@@ -645,7 +681,7 @@ class ImportManager:
         - Cadastre Parcelles : Contour marron/orange fin (#b45014), fond transparent
         - Cadastre Bâtiments : Remplissage marron/orange (#dca078)
         - Urbanisme GPU (Zonage) : Rendu catégorisé (U: Rouge, AU: Orange, A: Jaune, N: Vert)
-        - Adresses BAN : Marqueurs ponctuels circulaires bleus (#1a73e8)
+        - Adresses BAN / Météo / IRVE : Marqueurs ponctuels circulaires colorés
         - Limites administratives : Contours bleus épurés (#1a73e8)
         - Transports / Pistes cyclables : Lignes vertes (#2e7d32) ou gares/arrêts (#0277bd)
         - Risques / Inondations : Polygones bleus/rouges semi-transparents
@@ -658,67 +694,66 @@ class ImportManager:
 
             layer_type = item.extra.get('layer_type') if hasattr(item, 'extra') and item.extra else ''
             title_lower = (getattr(layer, 'name', lambda: '')() or item.title or '').lower()
-            geom_type = layer.geometryType()  # 0: Point, 1: Line, 2: Polygon
+            geom_type = layer.geometryType()
 
-            # 1. Cadastre Parcelles
-            if 'parcelle' in title_lower or layer_type == 'cadastre_parcelles':
+            # 1. Cadastre : Parcelles vs Bâtiments
+            if 'parcelle' in title_lower or layer_type == 'parcelle':
+                if geom_type == 2:  # Polygon
+                    sym = QgsFillSymbol.createSimple({
+                        'color': '0,0,0,0',
+                        'outline_color': '180,80,20,255',
+                        'outline_width': '0.3',
+                        'outline_style': 'solid'
+                    })
+                    layer.setRenderer(QgsSingleSymbolRenderer(sym))
+                    layer.triggerRepaint()
+            elif 'batiment' in title_lower or 'bâti' in title_lower or layer_type == 'batiment':
                 if geom_type == 2:
-                    sym = QgsSymbol.defaultSymbol(geom_type)
-                    sym.setColor(QColor(0, 0, 0, 0))
-                    if sym.symbolLayerCount() > 0:
-                        sym.symbolLayer(0).setStrokeColor(QColor(180, 80, 20))
-                        sym.symbolLayer(0).setStrokeWidth(0.4)
+                    sym = QgsFillSymbol.createSimple({
+                        'color': '220,160,120,200',
+                        'outline_color': '150,60,20,255',
+                        'outline_width': '0.3',
+                        'outline_style': 'solid'
+                    })
                     layer.setRenderer(QgsSingleSymbolRenderer(sym))
                     layer.triggerRepaint()
 
-            # 2. Cadastre Bâtiments
-            elif 'bâtiment' in title_lower or 'batiment' in title_lower or layer_type == 'cadastre_batiments':
-                if geom_type == 2:
-                    sym = QgsSymbol.defaultSymbol(geom_type)
-                    sym.setColor(QColor(220, 160, 120, 180))
-                    if sym.symbolLayerCount() > 0:
-                        sym.symbolLayer(0).setStrokeColor(QColor(140, 70, 20))
-                        sym.symbolLayer(0).setStrokeWidth(0.5)
-                    layer.setRenderer(QgsSingleSymbolRenderer(sym))
-                    layer.triggerRepaint()
-
-            # 3. Urbanisme GPU (Zonage PLU / CC)
-            elif 'urbanisme' in title_lower or 'zone_urba' in title_lower or 'secteur_cc' in title_lower or hasattr(item, 'doc_type'):
-                if geom_type == 2:
-                    categories = []
-                    color_map = {
-                        'U': QColor(220, 40, 40, 140),     # Urbain (Rouge)
-                        'AU': QColor(245, 140, 20, 140),  # À Urbaniser (Orange)
-                        'A': QColor(245, 220, 30, 140),   # Agricole (Jaune)
-                        'N': QColor(45, 160, 65, 140)     # Naturel (Vert)
+            # 2. Urbanisme GPU : Zonage (U, AU, A, N)
+            elif 'zone_urba' in title_lower or 'zonage' in title_lower or 'plu' in title_lower:
+                if geom_type == 2 and 'typezone' in [f.name().lower() for f in layer.fields()]:
+                    field_name = next(f.name() for f in layer.fields() if f.name().lower() == 'typezone')
+                    colors = {
+                        'U': QColor(227, 26, 28, 120),
+                        'AU': QColor(255, 127, 0, 120),
+                        'A': QColor(255, 255, 51, 120),
+                        'N': QColor(51, 160, 44, 120)
                     }
-                    for code, color in color_map.items():
-                        sym = QgsSymbol.defaultSymbol(geom_type)
-                        sym.setColor(color)
-                        if sym.symbolLayerCount() > 0:
-                            sym.symbolLayer(0).setStrokeColor(color.darker(130))
-                        categories.append(QgsRendererCategory(code, sym, f"Zone {code}"))
+                    categories = []
+                    for val, col in colors.items():
+                        s = QgsFillSymbol.createSimple({
+                            'color': f"{col.red()},{col.green()},{col.blue()},{col.alpha()}",
+                            'outline_color': '80,80,80,255',
+                            'outline_width': '0.2'
+                        })
+                        categories.append(QgsRendererCategory(val, s, f"Zone {val}"))
+                    layer.setRenderer(QgsCategorizedSymbolRenderer(field_name, categories))
+                    layer.triggerRepaint()
 
-                    target_field = None
-                    for f in layer.fields():
-                        if f.name().lower() in ('typezone', 'type_zone', 'code_zone', 'du_type', 'libelle'):
-                            target_field = f.name()
-                            break
-                    if target_field:
-                        renderer = QgsCategorizedSymbolRenderer(target_field, categories)
-                        layer.setRenderer(renderer)
-                        layer.triggerRepaint()
-
-            # 4. Adresses & Points de transport
-            elif 'adresse' in title_lower or 'ban' in title_lower or 'arret' in title_lower or 'station' in title_lower:
-                if geom_type == 0:
+            # 3. Adresses BAN / Stations Météo / IRVE
+            elif any(x in title_lower for x in ('adresse', 'ban', 'irve', 'borne', 'station', 'meteo')):
+                if geom_type == 0:  # Point
                     sym = QgsSymbol.defaultSymbol(geom_type)
-                    sym.setColor(QColor(26, 115, 232))
+                    if 'meteo' in title_lower or 'station' in title_lower:
+                        sym.setColor(QColor(2, 136, 209))
+                    elif 'irve' in title_lower or 'borne' in title_lower:
+                        sym.setColor(QColor(0, 150, 136))
+                    else:
+                        sym.setColor(QColor(26, 115, 232))
                     sym.setSize(2.8)
                     layer.setRenderer(QgsSingleSymbolRenderer(sym))
                     layer.triggerRepaint()
 
-            # 5. Pistes cyclables / Voies vertes
+            # 4. Pistes cyclables / Voies vertes
             elif 'cyclable' in title_lower or 'velo' in title_lower:
                 if geom_type == 1:
                     sym = QgsSymbol.defaultSymbol(geom_type)
@@ -727,7 +762,7 @@ class ImportManager:
                     layer.setRenderer(QgsSingleSymbolRenderer(sym))
                     layer.triggerRepaint()
 
-            # 6. Limites Administratives
+            # 5. Limites Administratives
             elif any(x in title_lower for x in ('commune', 'département', 'iris', 'region')):
                 if geom_type == 2:
                     sym = QgsSymbol.defaultSymbol(geom_type)
@@ -761,52 +796,50 @@ class ImportManager:
                                 'TARGET_CRS': target_crs_obj,
                                 'OUTPUT': 'memory:'
                             })
-                            if res and 'OUTPUT' in res:
+                            if res and 'OUTPUT' in res and res['OUTPUT'].isValid():
                                 reprojected_layer = res['OUTPUT']
                                 reprojected_layer.setName(layer.name())
-                        except Exception as proc_err:
-                            QgsMessageLog.logMessage(f"Processing reprojectlayer non exécuté: {proc_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
-
-                    QgsProject.instance().setCrs(target_crs_obj)
+                        except Exception as reproj_err:
+                            QgsMessageLog.logMessage(f"Reprojection native non effectuée: {reproj_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         except Exception as crs_err:
-            QgsMessageLog.logMessage(f"Erreur d'application du CRS: {crs_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+            QgsMessageLog.logMessage(f"Gestion du CRS ignorée: {crs_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
-        target_for_filters = reprojected_layer if isinstance(reprojected_layer, QgsVectorLayer) else (layer if isinstance(layer, QgsVectorLayer) else None)
-        if target_for_filters:
+        if isinstance(reprojected_layer, QgsVectorLayer) and reprojected_layer.isValid():
+            target_for_filters = reprojected_layer
+
+            # NIVEAU 1 : FILTRAGE ATTRIBUTAIRE AUTOMATIQUE
             try:
-                code_insee = item.extra.get('code_insee') if item and hasattr(item, 'extra') else None
-                dep_code = item.extra.get('dep_code') if item and hasattr(item, 'extra') else None
-                filter_val = territory_filter or code_insee or getattr(item, 'territory', None)
+                code_insee = item.extra.get('code_insee')
+                raw_filter = str(territory_filter or code_insee or '').strip()
 
-                if filter_val and str(filter_val).lower() not in ("france", "toutes les échelles", "all"):
-                    clean_filter = str(filter_val).strip()
-                    codes = [c.strip() for c in clean_filter.split(',') if c.strip()]
+                if raw_filter and raw_filter.lower() not in ("france", "toutes les échelles", "all"):
+                    filter_codes = [c.strip() for c in raw_filter.split(',') if c.strip()]
+                    fields = [f.name() for f in target_for_filters.fields()]
                     subset_clauses = []
-                    field_names = [f.name() for f in target_for_filters.fields()]
 
-                    for fname in field_names:
-                        fname_lower = fname.lower()
-                        if fname_lower in ('insee', 'code_insee', 'insee_com', 'code_com', 'insee_commune', 'codgeo', 'codeinsee', 'c_insee', 'insee_code', 'code_insee_commune', 'com_code', 'code_commune', 'insee_c'):
-                            if len(codes) > 1 and all(c.isdigit() and len(c) == 5 for c in codes):
-                                formatted_insee = ", ".join([f"'{c}'" for c in codes])
-                                subset_clauses.append(f"{fname} IN ({formatted_insee})")
-                            elif code_insee:
-                                subset_clauses.append(f"{fname} = '{code_insee}'")
-                            elif clean_filter.isdigit() and len(clean_filter) == 5:
-                                subset_clauses.append(f"{fname} = '{clean_filter}'")
-                            elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
-                                subset_clauses.append(f"{fname} LIKE '{clean_filter}%'")
-                        elif fname_lower in ('code_dep', 'dep', 'code_dept', 'insee_dep', 'dep_code', 'dpt', 'num_dep', 'departement', 'cd_dep'):
-                            if dep_code:
-                                subset_clauses.append(f"{fname} = '{dep_code}'")
-                            elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
-                                subset_clauses.append(f"{fname} = '{clean_filter}'")
-                        elif fname_lower in ('code_reg', 'reg', 'insee_reg', 'reg_code', 'region', 'cd_reg'):
-                            if clean_filter.isdigit() and len(clean_filter) == 2:
-                                subset_clauses.append(f"{fname} = '{clean_filter}'")
-                        elif fname_lower in ('nom_com', 'nom', 'commune', 'nom_commune', 'nom_dept', 'nom_dep', 'nom_reg', 'region', 'libelle', 'libgeo'):
-                            escaped_val = clean_filter.replace("'", "''")
-                            subset_clauses.append(f"{fname} ILIKE '%{escaped_val}%'")
+                    for clean_filter in filter_codes:
+                        dep_code = None
+                        if clean_filter.isdigit() and len(clean_filter) == 5:
+                            dep_code = clean_filter[:2]
+                            if clean_filter.startswith('97'):
+                                dep_code = clean_filter[:3]
+
+                        for fname in fields:
+                            fname_lower = fname.lower()
+                            if fname_lower in ('insee_com', 'code_insee', 'insee', 'code_com', 'insee_commune', 'cd_insee', 'depcom', 'code'):
+                                if clean_filter.isdigit() and len(clean_filter) == 5:
+                                    subset_clauses.append(f"{fname} = '{clean_filter}'")
+                            elif fname_lower in ('insee_dep', 'code_dep', 'dep', 'departement', 'code_dept', 'dpt', 'cd_dep'):
+                                if dep_code:
+                                    subset_clauses.append(f"{fname} = '{dep_code}'")
+                                elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
+                                    subset_clauses.append(f"{fname} = '{clean_filter}'")
+                            elif fname_lower in ('code_reg', 'reg', 'insee_reg', 'reg_code', 'region', 'cd_reg'):
+                                if clean_filter.isdigit() and len(clean_filter) == 2:
+                                    subset_clauses.append(f"{fname} = '{clean_filter}'")
+                            elif fname_lower in ('nom_com', 'nom', 'commune', 'nom_commune', 'nom_dept', 'nom_dep', 'nom_reg', 'region', 'libelle', 'libgeo'):
+                                escaped_val = clean_filter.replace("'", "''")
+                                subset_clauses.append(f"{fname} ILIKE '%{escaped_val}%'")
 
                     if subset_clauses:
                         clause = " OR ".join(subset_clauses)
@@ -826,7 +859,7 @@ class ImportManager:
 
                         terr_geom_transformed = QgsGeometry(terr_geom)
                         if layer_crs.isValid() and terr_crs.isValid() and layer_crs != terr_crs:
-                            xform = QgsCoordinateTransform(terr_crs, layer_crs, QgsProject.instance())
+                            xform = QgsCoordinateTransform(terr_crs, layer_crs, QgsProject.instance() if QgsProject else None)
                             terr_geom_transformed.transform(xform)
 
                         terr_bbox = terr_geom_transformed.boundingBox()
@@ -985,19 +1018,24 @@ class ImportManager:
                     self._add_layer_safely(final_layer)
                     return True, f"Couche NeTEx '{item.title}' extraite et ajoutée avec succès."
 
-        # E. JSON / APIs REST à convertir en GeoJSON
+        # E. JSON / APIs REST à convertir en GeoJSON ou Table CSV
         if ext in ('.json', '.dat') or 'json' in ext:
-            converted_path, convert_msg = self._try_convert_json_to_geojson(local_path)
+            converted_path, convert_msg, is_table = self._try_convert_json_to_spatial_or_table(local_path)
             if converted_path and os.path.exists(converted_path):
-                layer = QgsVectorLayer(converted_path, item.title, "ogr")
-                if layer.isValid():
-                    final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                    self._add_layer_safely(final_layer)
-                    return True, f"Couche vectorielle '{item.title}' convertie et ajoutée avec succès."
+                if is_table:
+                    success, msg = self._import_csv_layer(converted_path, item, target_crs=target_crs, territory_filter=territory_filter)
+                    if success:
+                        return True, f"Table attributaire '{item.title}' ajoutée avec succès."
+                else:
+                    layer = QgsVectorLayer(converted_path, item.title, "ogr")
+                    if layer.isValid():
+                        final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
+                        self._add_layer_safely(final_layer)
+                        return True, f"Couche vectorielle '{item.title}' convertie et ajoutée avec succès."
 
-            return False, f"Le fichier ne contient pas de géométries ou d'entités spatiales directement exploitables.\nDétail: {convert_msg}"
+            return False, f"Le fichier ne contient pas de données exploitables.\nDétail: {convert_msg}"
 
-        return False, f"Format vectoriel non valide pour le fichier : {local_path}"
+        return False, f"Format non valide pour le fichier : {local_path}"
 
     def _import_csv_layer(self, local_path, item, target_crs=None, territory_filter=None):
         """
@@ -1034,37 +1072,55 @@ class ImportManager:
 
         try:
             with open(local_path, 'r', encoding='utf-8-sig', errors='replace') as f:
-                first_line = f.readline()
-                if first_line.count(';') > first_line.count(','):
-                    delimiter = ";"
-                elif first_line.count('\t') > first_line.count(','):
-                    delimiter = "\t"
-                elif first_line.count('|') > first_line.count(','):
-                    delimiter = "|"
-                else:
-                    delimiter = ","
+                first_lines = [f.readline() for _ in range(3)]
+                sample_text = "".join(first_lines)
 
-                headers = [h.strip().lower() for h in first_line.split(delimiter)]
+                # Comptage robuste des délimiteurs
+                counts = {
+                    ';': sample_text.count(';'),
+                    ',': sample_text.count(','),
+                    '\t': sample_text.count('\t'),
+                    '|': sample_text.count('|')
+                }
+                delimiter = max(counts, key=counts.get) if max(counts.values()) > 0 else ","
+
+                first_line = first_lines[0] if first_lines else ""
+                raw_headers = [h.strip().strip('"').strip("'") for h in first_line.split(delimiter)]
+                headers = [h.lower() for h in raw_headers]
+
+                # Dictionnaire de correspondance exacte pour préserver la casse originale
+                header_map = {h.lower(): orig for h, orig in zip(headers, raw_headers)}
+
+                # Détection WKT
                 for h in headers:
-                    if h in ('wkt', 'geom', 'geometry', 'the_geom', 'geometrie'):
-                        wkt_field = h
+                    if h in ('wkt', 'geom', 'geometry', 'the_geom', 'geometrie', 'shape'):
+                        wkt_field = header_map[h]
                         break
-                    elif h in ('lon', 'lng', 'longitude', 'x', 'x_coord', 'lon_wgs84', 'x_wgs84'):
-                        x_field = h
-                    elif h in ('lat', 'latitude', 'y', 'y_coord', 'lat_wgs84', 'y_wgs84'):
-                        y_field = h
-                    elif h in ('x_l93', 'x_lambert93', 'x_lambert_93', 'coord_x'):
-                        x_field = h
-                        is_lambert93 = True
-                    elif h in ('y_l93', 'y_lambert93', 'y_lambert_93', 'coord_y'):
-                        y_field = h
-                        is_lambert93 = True
+
+                # Détection X / Longitude et Y / Latitude
+                lon_candidates = ('lon', 'lng', 'longitude', 'x', 'x_coord', 'xlongitude', 'x_longitude', 'xlong', 'x_long', 'long', 'coord_x', 'longitude_wgs84', 'lon_wgs84', 'x_wgs84', 'x_centroid', 'lon_dd', 'lon_pt')
+                lat_candidates = ('lat', 'latitude', 'y', 'y_coord', 'ylatitude', 'y_latitude', 'ylat', 'y_lat', 'coord_y', 'latitude_wgs84', 'lat_wgs84', 'y_wgs84', 'y_centroid', 'lat_dd', 'lat_pt')
+                l93_x_candidates = ('x_l93', 'x_lambert93', 'x_lambert_93', 'coord_x_l93', 'epsg_2154_x')
+                l93_y_candidates = ('y_l93', 'y_lambert93', 'y_lambert_93', 'coord_y_l93', 'epsg_2154_y')
+
+                if not wkt_field:
+                    for h in headers:
+                        if h in lon_candidates:
+                            x_field = header_map[h]
+                        elif h in lat_candidates:
+                            y_field = header_map[h]
+                        elif h in l93_x_candidates:
+                            x_field = header_map[h]
+                            is_lambert93 = True
+                        elif h in l93_y_candidates:
+                            y_field = header_map[h]
+                            is_lambert93 = True
 
                 # Détection de colonne composite geo_point_2d ou coordonnees
                 if not (x_field and y_field) and not wkt_field:
                     for h in headers:
-                        if h in ('geo_point_2d', 'coordonnees', 'coordinates', 'position', 'geom_x_y'):
-                            converted_csv = self._expand_composite_coords_csv(local_path, delimiter, h)
+                        if h in ('geo_point_2d', 'coordonnees', 'coordinates', 'position', 'geom_x_y', 'coordonnees_xy', 'lat_lon'):
+                            converted_csv = self._expand_composite_coords_csv(local_path, delimiter, header_map[h])
                             if converted_csv:
                                 return self._import_csv_layer(converted_csv, item, target_crs=target_crs, territory_filter=territory_filter)
 
@@ -1072,24 +1128,26 @@ class ImportManager:
             QgsMessageLog.logMessage(f"Erreur analyse CSV: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         csv_crs = "EPSG:2154" if is_lambert93 else (target_crs if (target_crs and "Native" not in target_crs) else "EPSG:4326")
+        delim_encoded = urllib.parse.quote(delimiter)
 
         if x_field and y_field:
-            uri = f"file:///{local_path}?delimiter={urllib.parse.quote(delimiter)}&useHeader=yes&xField={x_field}&yField={y_field}&crs={csv_crs}&encoding={encoding}"
+            uri = f"file:///{local_path}?delimiter={delim_encoded}&useHeader=yes&xField={urllib.parse.quote(x_field)}&yField={urllib.parse.quote(y_field)}&crs={csv_crs}&encoding={encoding}"
             layer = QgsVectorLayer(uri, item.title, "delimitedtext")
-            if layer.isValid():
+            if layer.isValid() and layer.featureCount() > 0:
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
                 self._add_layer_safely(final_layer)
-                return True, f"Couche ponctuelle CSV '{item.title}' ajoutée avec succès."
+                return True, f"Couche ponctuelle CSV '{item.title}' [{layer.featureCount()} entités] ajoutée avec succès."
 
         if wkt_field:
-            uri = f"file:///{local_path}?delimiter={urllib.parse.quote(delimiter)}&useHeader=yes&wktField={wkt_field}&crs={csv_crs}&encoding={encoding}"
+            uri = f"file:///{local_path}?delimiter={delim_encoded}&useHeader=yes&wktField={urllib.parse.quote(wkt_field)}&crs={csv_crs}&encoding={encoding}"
             layer = QgsVectorLayer(uri, item.title, "delimitedtext")
-            if layer.isValid():
+            if layer.isValid() and layer.featureCount() > 0:
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
                 self._add_layer_safely(final_layer)
                 return True, f"Couche vectorielle WKT CSV '{item.title}' ajoutée avec succès."
 
-        uri = f"file:///{local_path}?delimiter={urllib.parse.quote(delimiter)}&useHeader=yes&type=csv&geometry=none&encoding={encoding}"
+        # Import en tant que table attributaire (sans géométrie)
+        uri = f"file:///{local_path}?delimiter={delim_encoded}&useHeader=yes&type=csv&geometry=none&encoding={encoding}"
         layer = QgsVectorLayer(uri, item.title, "delimitedtext")
         if not layer.isValid():
             layer = QgsVectorLayer(local_path, item.title, "ogr")
@@ -1140,16 +1198,20 @@ class ImportManager:
             QgsMessageLog.logMessage(f"Erreur expansion composite coords CSV: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
             return None
 
-    def _try_convert_json_to_geojson(self, filepath):
+    def _try_convert_json_to_spatial_or_table(self, filepath):
+        """
+        Analyse un JSON pour déterminer s'il s'agit d'un GeoJSON ou d'une table d'attributs (ex: COG Communes INSEE).
+        Retourne (out_path, message, is_table).
+        """
         content = None
         try:
             with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
                 content = json.load(f)
         except Exception as e:
-            return None, f"JSON illisible : {e}"
+            return None, f"JSON illisible : {e}", False
 
         if isinstance(content, dict) and content.get('type') in ('FeatureCollection', 'Feature'):
-            return filepath, "GeoJSON valide."
+            return filepath, "GeoJSON valide.", False
 
         # GBFS Feeds (vélos / trottinettes)
         if isinstance(content, dict) and 'data' in content and isinstance(content['data'], dict) and 'feeds' in content['data']:
@@ -1166,8 +1228,7 @@ class ImportManager:
 
             if target_feed_url:
                 try:
-                    req = urllib.request.Request(target_feed_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-                    with self._fetch_url(req, timeout=10) as resp:
+                    with self._fetch_url(target_feed_url, timeout=10) as resp:
                         sub_content = json.loads(resp.read().decode('utf-8-sig'))
                         return self._parse_json_features(sub_content, filepath)
                 except Exception as ex:
@@ -1219,10 +1280,12 @@ class ImportManager:
                 if 'lon' in g2d and 'lat' in g2d:
                     geom = {"type": "Point", "coordinates": [float(g2d['lon']), float(g2d['lat'])]}
 
-            elif any(k in item for k in ('lat', 'latitude', 'LAT', 'LATITUDE')) and any(k in item for k in ('lon', 'lng', 'longitude', 'LON', 'LONGITUDE')):
+            elif any(k in item for k in ('lat', 'latitude', 'LAT', 'LATITUDE', 'lat_wgs84')) and any(k in item for k in ('lon', 'lng', 'longitude', 'LON', 'LONGITUDE', 'lon_wgs84')):
                 try:
-                    lat = float(item.get('lat') or item.get('latitude') or item.get('LAT') or item.get('LATITUDE'))
-                    lon = float(item.get('lon') or item.get('lng') or item.get('longitude') or item.get('LON') or item.get('LONGITUDE'))
+                    lat_k = next(k for k in ('lat', 'latitude', 'LAT', 'LATITUDE', 'lat_wgs84') if k in item)
+                    lon_k = next(k for k in ('lon', 'lng', 'longitude', 'LON', 'LONGITUDE', 'lon_wgs84') if k in item)
+                    lat = float(item[lat_k])
+                    lon = float(item[lon_k])
                     geom = {
                         "type": "Point",
                         "coordinates": [lon, lat]
@@ -1245,9 +1308,30 @@ class ImportManager:
             out_path = orig_filepath + ".converted.geojson"
             with open(out_path, 'w', encoding='utf-8') as f:
                 json.dump(geojson_data, f, ensure_ascii=False)
-            return out_path, f"{len(features)} entités spatiales extraites avec succès."
+            return out_path, f"{len(features)} entités spatiales extraites avec succès.", False
 
-        return None, "Aucune donnée géographique (lat/lon ou géométrie) trouvée dans la structure du fichier."
+        # Si aucune géométrie n'est présente, conversion en table CSV propre
+        if items and isinstance(items[0], dict):
+            try:
+                csv_path = orig_filepath + ".converted_table.csv"
+                fieldnames = list(items[0].keys())
+                with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f_out:
+                    writer = csv.DictWriter(f_out, fieldnames=fieldnames, delimiter=';')
+                    writer.writeheader()
+                    for row in items:
+                        clean_row = {}
+                        for k in fieldnames:
+                            v = row.get(k, '')
+                            if isinstance(v, (list, dict)):
+                                clean_row[k] = json.dumps(v, ensure_ascii=False)
+                            else:
+                                clean_row[k] = str(v) if v is not None else ''
+                        writer.writerow(clean_row)
+                return csv_path, f"{len(items)} enregistrements tabulaires extraits.", True
+            except Exception as tab_err:
+                QgsMessageLog.logMessage(f"Erreur conversion JSON en table CSV: {tab_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+
+        return None, "Aucune donnée géographique ni tabulaire exploitable trouvée.", False
 
     def _clean_ogc_url(self, raw_url):
         if not raw_url:
@@ -1259,11 +1343,11 @@ class ImportManager:
 
             extracted_layers = (
                 qs.get('LAYERS') or qs.get('layers') or qs.get('layer') or
-                qs.get('TYPENAME') or qs.get('typename') or qs.get('typeName')
+                qs.get('TYPENAME') or qs.get('typename') or qs.get('typeName') or qs.get('typenames')
             )
             layer_name = extracted_layers[0] if extracted_layers else None
 
-            reserved_keys = {'SERVICE', 'REQUEST', 'VERSION', 'FORMAT', 'LAYERS', 'LAYER', 'TYPENAME', 'STYLES', 'STYLE', 'SRS', 'CRS', 'BBOX', 'MAXFEATURES', 'SRSNAME'}
+            reserved_keys = {'SERVICE', 'REQUEST', 'VERSION', 'FORMAT', 'LAYERS', 'LAYER', 'TYPENAME', 'TYPENAMES', 'STYLES', 'STYLE', 'SRS', 'CRS', 'BBOX', 'MAXFEATURES', 'SRSNAME'}
             for k in list(qs.keys()):
                 if k.upper() in reserved_keys:
                     del qs[k]
@@ -1278,14 +1362,13 @@ class ImportManager:
         try:
             sep = "&" if "?" in raw_url else "?"
             capabilities_url = f"{raw_url}{sep}SERVICE=WMS&REQUEST=GetCapabilities" if "GetCapabilities" not in raw_url else raw_url
-            req = urllib.request.Request(capabilities_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-            with self._fetch_url(req, timeout=8) as response:
+            with self._fetch_url(capabilities_url, timeout=8) as response:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)  # nosec B314
                 for elem in root.iter():
                     if elem.tag.endswith('Name') and elem.text and elem.text.strip():
                         name = elem.text.strip()
-                        if name.upper() not in ('WMS', 'WFS', 'GETCAPABILITIES', 'WMS_CAPABILITIES', 'DEFAULT') and not name.startswith('http'):
+                        if name.upper() not in ('WMS', 'WFS', 'GETCAPABILITIES', 'WMS_CAPABILITIES', 'DEFAULT', 'GEORISQUES_SERVICES') and not name.startswith('http'):
                             return name
         except Exception as e:
             QgsMessageLog.logMessage(f"Impossible d'extraire la couche WMS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
@@ -1295,8 +1378,7 @@ class ImportManager:
         try:
             sep = "&" if "?" in raw_url else "?"
             capabilities_url = f"{raw_url}{sep}SERVICE=WFS&REQUEST=GetCapabilities" if "GetCapabilities" not in raw_url else raw_url
-            req = urllib.request.Request(capabilities_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-            with self._fetch_url(req, timeout=10) as response:
+            with self._fetch_url(capabilities_url, timeout=10) as response:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)  # nosec B314
 
@@ -1360,6 +1442,10 @@ class ImportManager:
         if not layer_name:
             if 'geopf' in raw_url or 'geoportail' in raw_url:
                 layer_name = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS" if "cadastre" in item.title.lower() else "document"
+            elif 'georisques' in raw_url:
+                layer_name = "ALEARG" if "argile" in item.title.lower() else "MASQ_EAIP"
+            elif 'brgm' in raw_url:
+                layer_name = "SCAN_D_GEOL50" if "geol" in item.title.lower() else "GEOLOGIE"
             else:
                 return False, f"Impossible de déterminer le nom de la couche WMS pour : {raw_url}"
 
@@ -1386,7 +1472,7 @@ class ImportManager:
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
                     self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
 
-                return True, f"Flux WMS '{item.title}' [couche {layer_name}, {crs_code}] ajouté avec succès."
+                return True, f"Flux WMS '{item.title}' [{layer_name}, {crs_code}] ajouté avec succès."
 
         return False, f"Impossible de se connecter au flux WMS : {clean_url}"
 
@@ -1399,22 +1485,19 @@ class ImportManager:
             dest_crs_str = "EPSG:3857"
             if raster_layer and raster_layer.crs().isValid():
                 dest_crs_str = raster_layer.crs().authid()
-            elif QgsProject.instance().crs().isValid():
-                dest_crs_str = QgsProject.instance().crs().authid()
 
-            src_crs = QgsCoordinateReferenceSystem(terr_crs_str)
-            dst_crs = QgsCoordinateReferenceSystem(dest_crs_str)
+            dest_crs = QgsCoordinateReferenceSystem(dest_crs_str)
+            terr_crs = QgsCoordinateReferenceSystem(terr_crs_str)
 
-            geom_transformed = QgsGeometry(terr_geom)
-            if src_crs.isValid() and dst_crs.isValid() and src_crs != dst_crs:
-                xform = QgsCoordinateTransform(src_crs, dst_crs, QgsProject.instance())
-                geom_transformed.transform(xform)
+            geom_trans = QgsGeometry(terr_geom)
+            if dest_crs.isValid() and terr_crs.isValid() and dest_crs != terr_crs:
+                xform = QgsCoordinateTransform(terr_crs, dest_crs, QgsProject.instance() if QgsProject else None)
+                geom_trans.transform(xform)
 
-            mask_name = f"Masque Découpage - {item.title}"
-            mask_layer = QgsVectorLayer(f"Polygon?crs={dest_crs_str}", mask_name, "memory")
+            mask_layer = QgsVectorLayer(f"Polygon?crs={dest_crs_str}", f"Emprise - {territory_filter}", "memory")
             dp = mask_layer.dataProvider()
             feat = QgsFeature()
-            feat.setGeometry(geom_transformed)
+            feat.setGeometry(geom_trans)
             dp.addFeatures([feat])
             mask_layer.updateExtents()
 
@@ -1461,11 +1544,10 @@ class ImportManager:
                 return False, f"Impossible de déterminer le nom technique WFS pour : {raw_url}"
 
             srs_code = target_crs if (target_crs and "Native" not in target_crs) else "EPSG:4326"
-
             code_insee = item.extra.get('code_insee')
             tf = (territory_filter or code_insee or '').strip()
 
-            # 1. TENTATIVE D'IMPORT DIRECT GEOJSON WFS AVEC BBOX SPATIAL TERRITORIAL (HAUTE PERFORMANCE)
+            # 1. TENTATIVE D'IMPORT DIRECT GEOJSON WFS AVEC BBOX SPATIAL TERRITORIAL
             if tf and str(tf).lower() not in ("france", "toutes les échelles", "all"):
                 try:
                     terr_geom, terr_crs_str = self._get_territory_geometry(tf)
@@ -1479,7 +1561,7 @@ class ImportManager:
                             "REQUEST": "GetFeature",
                             "VERSION": "2.0.0",
                             "TYPENAMES": typename,
-                            "OUTPUTFORMAT": "json",
+                            "OUTPUTFORMAT": "application/json",
                             "BBOX": bbox_param
                         }
                         direct_url = f"{wfs_base}?{urllib.parse.urlencode(params)}"
@@ -1489,8 +1571,7 @@ class ImportManager:
                         if progress_callback:
                             progress_callback(f"Téléchargement WFS optimisé ({item.title})...")
 
-                        req = urllib.request.Request(direct_url, headers={'User-Agent': 'OpenGeoDataFR-QGIS/1.0'})
-                        with self._fetch_url(req, timeout=12) as resp:
+                        with self._fetch_url(direct_url, timeout=15) as resp:
                             if resp.status == 200:
                                 payload = resp.read()
                                 if payload and not payload.strip().startswith(b'<?xml') and not payload.strip().startswith(b'<ows:ExceptionReport'):
@@ -1506,14 +1587,14 @@ class ImportManager:
                     QgsMessageLog.logMessage(f"Import direct GeoJSON WFS ignoré: {direct_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
             # 2. CHARGEMENT WFS NATIVE VIA QGIS
-            uri_clean_wfs = f"url='{clean_url}' typename='{typename}' srsname='{srs_code}' restrictToRequestBBOX='1' pagingEnabled='true' maxNumFeatures='5000'"
+            uri_clean_wfs = f"pagingEnabled='true' preferCoordinatesForWfsT11='false' srsname='{srs_code}' typename='{typename}' url='{clean_url}' version='auto'"
             layer_wfs = QgsVectorLayer(uri_clean_wfs, item.title, "WFS")
             if layer_wfs.isValid():
                 final_layer = self._apply_crs_and_filters(layer_wfs, item, target_crs=target_crs, territory_filter=territory_filter)
                 self._add_layer_safely(final_layer)
                 return True, f"Flux WFS '{item.title}' [{typename}, {srs_code}] ajouté avec succès au projet."
 
-            return self._import_wms_layer(item, target_crs=target_crs)
+            return False, f"Impossible de se connecter au flux WFS '{typename}' sur {clean_url}"
         except Exception as err:
             return False, f"Erreur lors de l'import WFS: {err}"
 
@@ -1528,30 +1609,43 @@ class ImportManager:
         srs_code = target_crs if (target_crs and "Native" not in target_crs) else "EPSG:3857"
 
         if as_wms or not item.wfs_layers:
-            layers_to_add = item.wms_layers or ["document", "zone_secteur", "prescription"]
-            for lyr in layers_to_add:
-                uri = f"contextualWMSLegend=0&crs={srs_code}&dpiMode=7&featureCount=10&format=image/png&layers={lyr}&styles=&url={urllib.parse.quote(clean_wms_url, safe=':/?&=%-')}"
-                layer_title = f"{item.title} (WMS - {lyr})"
-                layer = QgsRasterLayer(uri, layer_title, "wms")
+            wms_layers_to_load = item.wms_layers or ["document", "zone_secteur", "prescription"]
+            for lyr_name in wms_layers_to_load:
+                uri = f"contextualWMSLegend=0&crs={srs_code}&dpiMode=7&featureCount=10&format=image/png&layers={lyr_name}&styles=&url={urllib.parse.quote(clean_wms_url, safe=':/?&=%-')}"
+                layer = QgsRasterLayer(uri, f"{item.title} - {lyr_name}", "wms")
                 if layer.isValid():
-                    final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs)
+                    final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
                     self._add_layer_safely(final_layer)
                     added_count += 1
 
             if added_count > 0:
-                return True, f"{added_count} couche(s) WMS GPU ({srs_code}) ajoutée(s) au projet."
-            return False, "Échec de connexion WMS au Géoportail de l'Urbanisme."
+                if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
+                    self._create_and_add_wms_mask(item, territory_filter)
+                return True, f"{added_count} couche(s) WMS GPU ajoutée(s) avec succès."
+            return False, "Impossible de charger les couches WMS GPU."
 
-        wfs_srs = target_crs if (target_crs and "Native" not in target_crs) else "EPSG:4326"
-        for lyr in item.wfs_layers:
-            uri = f"url='{clean_wfs_url}' typename='{lyr}' srsname='{wfs_srs}' restrictToRequestBBOX='1' pagingEnabled='true' maxNumFeatures='5000'"
-            layer = QgsVectorLayer(uri, f"{item.title} (WFS - {lyr})", "WFS")
-            if layer.isValid():
-                final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                self._add_layer_safely(final_layer)
+        for lyr_name in item.wfs_layers:
+            sub_item = DataItem(
+                item_id=f"{item.id}_{lyr_name}",
+                title=f"{item.title} - {lyr_name}",
+                source=item.source,
+                data_type="wfs",
+                territory=item.territory,
+                scale=item.scale,
+                crs=item.crs,
+                date=item.date,
+                url=clean_wfs_url,
+                service_type="WFS",
+                extra={
+                    'layer_name': lyr_name,
+                    'wfs_url': clean_wfs_url,
+                    'code_insee': item.extra.get('code_insee')
+                }
+            )
+            success, _, _ = self.import_item(sub_item, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+            if success:
                 added_count += 1
 
         if added_count > 0:
-            return True, f"{added_count} couche(s) WFS GPU ({wfs_srs}) ajoutée(s) au projet."
-
-        return self._import_urban_doc(item, as_wms=True, target_crs=target_crs, territory_filter=territory_filter, progress_callback=progress_callback)
+            return True, f"{added_count} couche(s) vectorielle(s) WFS GPU ajoutée(s) avec succès."
+        return False, "Échec de chargement des couches vectorielles GPU."

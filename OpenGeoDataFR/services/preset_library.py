@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Bibliothèque de pré-réglages (Presets) standards pour la France.
-Permet d'accéder en 1 clic aux grands jeux de données de référence nationaux et régionaux :
-IGN, INSEE, Cadastre DGFiP, GPU, INPN/OFB, BRGM/Géorisques, transport.data.gouv.fr,
-meteo.data.gouv.fr, RTE, Enedis, SNCF, et les CRIGEs régionaux.
+Bibliothèque de pré-réglages (Presets) de référence pour la France.
+Accès en 1 clic aux données ouvertes officielles et pérennes :
+IGN GéoPlateforme, INSEE, Cadastre DGFiP, GPU, INPN/OFB, BRGM, Géorisques,
+Infoclimat / Météo-France SYNOP, transport.data.gouv.fr, RTE, Enedis, SNCF, et CRIGEs régionaux.
 """
 
 from ..models import DataItem, UrbanDocItem
@@ -122,29 +122,29 @@ class PresetLibrary:
                 scale="france",
                 crs="EPSG:4326",
                 date="2026 (INSEE)",
-                url="https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion,population",
+                url="https://geo.api.gouv.fr/communes?fields=nom,code,codeDepartement,codeRegion,population&format=json",
                 service_type="HTTP",
                 extra={
-                    'format': 'JSON API',
+                    'format': 'Table JSON / CSV',
                     'category': 'admin',
-                    'description': 'Référentiel cartographique officiel des communes et collectivités territoriales'
+                    'description': 'Répertoire cartographique et démographique officiel des 35 000 communes'
                 }
             ),
             DataItem(
                 item_id="preset_insee_sirene",
-                title="Base SIRENE Géocodée des Entreprises & Établissements (INSEE)",
-                source="data.gouv.fr (INSEE)",
+                title="Base SIRENE des Entreprises & Établissements (API DINUM / INSEE)",
+                source="API Recherche Entreprises (DINUM / INSEE)",
                 data_type="table",
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
-                date="2026 (INSEE)",
-                url="https://static.data.gouv.fr/resources/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/20260801-073219/stock-stocketablissement-csv.zip",
+                date="2026 (API SIRENE)",
+                url="https://recherche-entreprises.api.gouv.fr/search?per_page=50",
                 service_type="HTTP",
                 extra={
-                    'format': 'CSV.ZIP',
+                    'format': 'API REST JSON',
                     'category': 'admin',
-                    'description': 'Répertoire national officiel des entreprises et établissements actifs en France'
+                    'description': 'Répertoire officiel géocodé des entreprises et établissements actifs'
                 }
             ),
 
@@ -394,7 +394,7 @@ class PresetLibrary:
             # =========================================================================
             DataItem(
                 item_id="preset_pprn_georisques",
-                title="Plans de Prévention des Risques Naturels PPRN (Géorisques)",
+                title="Risque Inondation - EAIP & PPRN (Géorisques / BRGM)",
                 source="Géorisques / BRGM",
                 data_type="wms",
                 territory="France",
@@ -404,11 +404,11 @@ class PresetLibrary:
                 url="https://georisques.gouv.fr/services",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'PPRN',
+                    'layer_name': 'MASQ_EAIP',
                     'wms_url': 'https://georisques.gouv.fr/services',
                     'category': 'risques',
                     'format': 'Flux WMS',
-                    'description': 'Périmètres réglementaires et zonages des risques naturels (Inondations, séismes, mouvements)'
+                    'description': 'Enveloppes Approchées des Inondations Potentielles cours d\'eau et submersion marine'
                 }
             ),
             DataItem(
@@ -423,11 +423,11 @@ class PresetLibrary:
                 url="https://georisques.gouv.fr/services",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'ARGILES',
+                    'layer_name': 'ALEARG',
                     'wms_url': 'https://georisques.gouv.fr/services',
                     'category': 'risques',
                     'format': 'Flux WMS',
-                    'description': 'Cartographie officielle de l\'aléa retrait-gonflement des sols argileux'
+                    'description': 'Exposition officielle au retrait-gonflement des sols argileux'
                 }
             ),
             DataItem(
@@ -442,11 +442,11 @@ class PresetLibrary:
                 url="https://geoservices.brgm.fr/geologie",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'GEOLOGIE',
+                    'layer_name': 'SCAN_D_GEOL50',
                     'wms_url': 'https://geoservices.brgm.fr/geologie',
                     'category': 'risques',
                     'format': 'Flux WMS',
-                    'description': 'Carte géologique vectorielle et raster harmonisée au 1/50 000'
+                    'description': 'Carte géologique harmonisée au 1/50 000 du BRGM'
                 }
             ),
 
@@ -491,15 +491,15 @@ class PresetLibrary:
                 item_id="preset_covoiturage_pan",
                 title="Lieux et Aires de Covoiturage (Point d'Accès National)",
                 source="transport.data.gouv.fr",
-                data_type="file_vector",
+                data_type="table",
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
                 date="2026",
-                url="https://static.data.gouv.fr/resources/base-nationale-des-lieux-de-covoiturage/latest/covoiturage.geojson",
+                url="https://static.data.gouv.fr/resources/base-nationale-des-lieux-de-covoiturage/20260818-211131/bnlc.csv",
                 service_type="HTTP",
                 extra={
-                    'format': 'GeoJSON',
+                    'format': 'CSV',
                     'category': 'transport',
                     'description': 'Base nationale consolidée des aires et points de covoiturage'
                 }
@@ -512,17 +512,17 @@ class PresetLibrary:
                 item_id="preset_bornes_irve",
                 title="Bornes de Recharge Véhicules Électriques IRVE",
                 source="data.gouv.fr (Etalab / Ministère)",
-                data_type="table",
+                data_type="file_vector",
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
                 date="2026",
-                url="https://static.data.gouv.fr/resources/fichier-consolide-des-bornes-de-recharge-pour-vehicules-electriques-irve/latest/consolidation-irve.csv",
+                url="https://static.data.gouv.fr/resources/points-de-recharge-pour-vehicules-electriques-pour-1000-hab/20260414-110820/irve-coord.geojson",
                 service_type="HTTP",
                 extra={
-                    'format': 'CSV',
+                    'format': 'GeoJSON',
                     'category': 'energie',
-                    'description': 'Fichier consolidé national des stations et bornes de recharge électrique'
+                    'description': 'Fichier consolidé national géoréférencé des stations et bornes de recharge électrique'
                 }
             ),
             DataItem(
@@ -544,23 +544,23 @@ class PresetLibrary:
             ),
 
             # =========================================================================
-            # 9. MÉTÉO & CLIMAT (Météo-France)
+            # 9. MÉTÉO & CLIMAT (Infoclimat & Météo-France SYNOP)
             # =========================================================================
             DataItem(
                 item_id="preset_meteo_stations",
-                title="Stations Météorologiques & Climatologiques (Météo-France)",
-                source="meteo.data.gouv.fr",
-                data_type="table",
+                title="Stations Météorologiques & Climatologiques (Météo-France / SYNOP)",
+                source="Infoclimat / Météo-France",
+                data_type="file_vector",
                 territory="France",
                 scale="france",
                 crs="EPSG:4326",
                 date="2026",
-                url="https://meteo.data.gouv.fr/api/explore/v2.1/catalog/datasets/postes-synop/exports/csv",
+                url="https://www.infoclimat.fr/opendata/stations_xhr.php?format=geojson",
                 service_type="HTTP",
                 extra={
-                    'format': 'CSV',
-                    'category': 'environnement',
-                    'description': 'Réseau officiel des stations météorologiques et climatologiques de Météo-France'
+                    'format': 'GeoJSON',
+                    'category': 'meteo',
+                    'description': 'Réseau officiel des stations météorologiques SYNOP et StatIC avec coordonnées et altitude'
                 }
             ),
 
