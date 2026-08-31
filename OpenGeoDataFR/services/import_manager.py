@@ -404,6 +404,14 @@ class ImportManager:
                     ext = '.json'
                 elif 'format=csv' in url_lower or 'csv' in fmt:
                     ext = '.csv'
+                elif 'format=xlsx' in url_lower or 'xlsx' in fmt or 'excel' in fmt:
+                    ext = '.xlsx'
+                elif 'format=xls' in url_lower or 'xls' in fmt:
+                    ext = '.xls'
+                elif 'format=ods' in url_lower or 'ods' in fmt:
+                    ext = '.ods'
+                elif 'parquet' in fmt:
+                    ext = '.parquet'
                 elif 'shp' in fmt or 'shape' in fmt or 'zip' in fmt:
                     ext = '.zip'
                 elif 'gpkg' in fmt or 'geopackage' in fmt:
@@ -458,7 +466,7 @@ class ImportManager:
                         progress_callback(f"Téléchargement en cours : {pct}% ({downloaded // 1024} KB)")
 
             # Vérification de sécurité : si le serveur a renvoyé une page HTML (404/erreur camouflée)
-            if dest_file.endswith(('.json', '.geojson', '.csv', '.zip', '.gpkg', '.tif', '.dat')):
+            if dest_file.endswith(('.json', '.geojson', '.csv', '.zip', '.gpkg', '.tif', '.dat', '.xlsx', '.xls', '.ods')):
                 try:
                     with open(dest_file, 'rb') as check_f:
                         start_bytes = check_f.read(256).strip()
@@ -490,8 +498,26 @@ class ImportManager:
                 QgsMessageLog.logMessage(f"Erreur décompression GZ: {gz_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
                 return dest_file
 
+        # Traitement spécial Spreadsheets (XLSX, XLS, ODS, Parquet)
+        is_spreadsheet = dest_file.lower().endswith(('.xlsx', '.xls', '.ods', '.parquet')) or any(k in fmt for k in ('xlsx', 'xls', 'ods', 'excel', 'spreadsheet', 'parquet'))
+        if is_spreadsheet:
+            if not dest_file.lower().endswith(('.xlsx', '.xls', '.ods', '.parquet')):
+                sheet_ext = '.xlsx' if ('xlsx' in fmt or 'excel' in fmt) else ('.xls' if 'xls' in fmt else ('.parquet' if 'parquet' in fmt else '.ods'))
+                proper_sheet = f"{dest_file}{sheet_ext}"
+                if os.path.exists(proper_sheet):
+                    try:
+                        os.remove(proper_sheet)
+                    except Exception:
+                        pass
+                try:
+                    os.rename(dest_file, proper_sheet)
+                    return proper_sheet
+                except Exception:
+                    pass
+            return dest_file
+
         # 2. Traitement ZIP (.zip ou magic bytes)
-        is_zip = dest_file.endswith('.zip') or magic_type == 'zip' or zipfile.is_zipfile(dest_file)
+        is_zip = not is_spreadsheet and (dest_file.endswith('.zip') or magic_type == 'zip' or zipfile.is_zipfile(dest_file))
         if is_zip:
             if progress_callback:
                 progress_callback("Décompression de l'archive ZIP en cours...")
@@ -1033,10 +1059,11 @@ class ImportManager:
                     self._add_layer_safely(final_layer)
                     loaded_count += 1
 
-            # C. Recherche de fichiers vectoriels standards
+            # C. Recherche de fichiers vectoriels et tabulaires standards
             vector_files = []
             raster_files = []
             csv_files = []
+            sheet_files = []
 
             for root, dirs, files in os.walk(local_path):
                 for f in files:
@@ -1051,6 +1078,8 @@ class ImportManager:
                         raster_files.append(f_path)
                     elif f_lower.endswith('.csv') or (f_lower.endswith('.txt') and 'stops' not in f_lower and 'shapes' not in f_lower):
                         csv_files.append(f_path)
+                    elif f_lower.endswith(('.xlsx', '.xls', '.ods', '.parquet', '.dbf', '.tsv')):
+                        sheet_files.append(f_path)
 
             for vpath in vector_files:
                 base_name = os.path.splitext(os.path.basename(vpath))[0]
@@ -1075,9 +1104,17 @@ class ImportManager:
                 if success:
                     loaded_count += 1
 
+            for spath in sheet_files:
+                base_name = os.path.splitext(os.path.basename(spath))[0]
+                layer_title = f"{item.title} ({base_name})" if len(sheet_files) > 1 else item.title
+                layer = QgsVectorLayer(spath, layer_title, "ogr")
+                if layer.isValid():
+                    self._add_layer_safely(layer)
+                    loaded_count += 1
+
             if loaded_count > 0:
                 return True, f"{loaded_count} couche(s) extraite(s) et ajoutée(s) avec succès depuis l'archive."
-            return False, f"Aucun fichier spatial directement exploitable trouvé dans l'archive : {local_path}"
+            return False, f"Aucun fichier spatial ou tabulaire directement exploitable trouvé dans l'archive : {local_path}"
 
         # 2. FICHIER UNIQUE INDIVIDUEL
         ext = os.path.splitext(local_path)[1].lower()
@@ -1091,20 +1128,27 @@ class ImportManager:
                 return True, f"Couche raster '{item.title}' ajoutée avec succès."
             return False, "Échec de chargement de la couche raster."
 
-        # B. Tableaux CSV / Délimités
+        # B. Tableaux & Tableurs Excel / LibreOffice (XLSX, XLS, ODS, Parquet, DBF, TSV)
+        if ext in ('.xlsx', '.xls', '.ods', '.parquet', '.dbf', '.tsv') or any(k in str(format_hint).lower() for k in ('xlsx', 'xls', 'ods', 'excel', 'spreadsheet', 'parquet')):
+            layer = QgsVectorLayer(local_path, item.title, "ogr")
+            if layer.isValid():
+                self._add_layer_safely(layer)
+                return True, f"Table de données '{item.title}' (Excel/ODS) ajoutée avec succès dans QGIS."
+
+        # C. Tableaux CSV / Délimités
         if ext == '.csv' or item.data_type == 'table' or (format_hint and 'csv' in format_hint.lower()):
             success, msg = self._import_csv_layer(local_path, item, target_crs=target_crs, territory_filter=territory_filter)
             if success:
                 return True, msg
 
-        # C. Vecteur OGR standard (Shapefile, GeoPackage, GeoJSON, KML, GML, TAB, GPX, etc.)
+        # D. Vecteur OGR standard (Shapefile, GeoPackage, GeoJSON, KML, GML, TAB, GPX, etc.)
         layer = QgsVectorLayer(local_path, item.title, "ogr")
         if layer.isValid():
             final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
             self._add_layer_safely(final_layer)
             return True, f"Couche vectorielle '{item.title}' ajoutée avec succès."
 
-        # D. Fichiers XML / NeTEx autonomes
+        # E. Fichiers XML / NeTEx autonomes
         if ext in ('.xml', '.gml'):
             netex_res = self._parse_netex_to_layers(local_path, title_prefix=item.title)
             if netex_res:
@@ -1115,7 +1159,7 @@ class ImportManager:
                     self._add_layer_safely(final_layer)
                     return True, f"Couche NeTEx '{item.title}' extraite et ajoutée avec succès."
 
-        # E. JSON / APIs REST à convertir en GeoJSON ou Table CSV
+        # F. JSON / APIs REST à convertir en GeoJSON ou Table CSV
         if ext in ('.json', '.dat') or 'json' in ext:
             converted_path, convert_msg, is_table = self._try_convert_json_to_spatial_or_table(local_path)
             if converted_path and os.path.exists(converted_path):
@@ -1535,8 +1579,11 @@ class ImportManager:
 
             if '{z}' not in xyz_url:
                 xyz_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            
+            is_rainviewer = 'rainviewer' in xyz_url.lower() or 'radar' in item.id.lower() or 'satellite' in item.id.lower()
+            zmax_val = 12 if is_rainviewer else 19
             encoded_url = urllib.parse.quote(xyz_url, safe=':/?&=%-')
-            uri = f"type=xyz&url={encoded_url}&zmax=19&zmin=0"
+            uri = f"type=xyz&url={encoded_url}&zmax={zmax_val}&zmin=0"
             layer = QgsRasterLayer(uri, item.title, "wms")
             if layer.isValid():
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
