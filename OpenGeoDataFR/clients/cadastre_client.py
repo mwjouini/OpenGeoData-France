@@ -216,21 +216,26 @@ class CadastreClient:
 
         # 4. Commune unique (Nom ou Code Postal ou Code INSEE)
         clean_q = q.replace("com:", "").strip()
+        if clean_q.isdigit() and len(clean_q) == 5:
+            url = f"{self.GEO_API_URL}/{clean_q}?fields=nom,code,codeDepartement"
+            try:
+                content = fetch_url_bytes(url, timeout_ms=3500)
+                data = json.loads(content.decode('utf-8'))
+                return [data] if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            except Exception:
+                return [{"code": clean_q, "nom": f"Commune {clean_q}", "codeDepartement": clean_q[:2]}]
+
         params = {
+            "nom": clean_q,
             "fields": "nom,code,codeDepartement",
+            "boost": "population",
             "limit": 4
         }
-        if clean_q.isdigit() and len(clean_q) == 5:
-            params["code"] = clean_q
-        else:
-            params["nom"] = clean_q
-            params["boost"] = "population"
-
         url = f"{self.GEO_API_URL}?{urllib.parse.urlencode(params)}"
         try:
-            content = fetch_url_bytes(url, timeout_ms=self.timeout * 1000)
+            content = fetch_url_bytes(url, timeout_ms=3500)
             return json.loads(content.decode('utf-8'))
-        except Exception as e:
-            print(f"[OpenGeoDataFR] Erreur CadastreClient (communes search): {e}")
+        except Exception:
+            return [{"code": clean_q, "nom": clean_q, "codeDepartement": ""}]
 
         return []

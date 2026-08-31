@@ -387,6 +387,32 @@ class ImportManager:
 
         return 'unknown'
 
+    @staticmethod
+    def _safe_rename(src, dst):
+        """
+        Renomme ou copie de manière sécurisée un fichier sous Windows sans blocage WinError 32.
+        """
+        if not src or not os.path.exists(src) or src == dst:
+            return dst if dst and os.path.exists(dst) else src
+        try:
+            if os.path.exists(dst):
+                try:
+                    os.remove(dst)
+                except Exception:
+                    pass
+            os.replace(src, dst)
+            return dst
+        except Exception:
+            try:
+                shutil.copy2(src, dst)
+                try:
+                    os.remove(src)
+                except Exception:
+                    pass
+                return dst
+            except Exception:
+                return src
+
     def download_file(self, url, filename_hint="downloaded_file", format_hint=None, progress_callback=None):
         """
         Télécharge une ressource de manière sécurisée et robuste avec streaming, inspection binaire et gestion d'archives.
@@ -397,18 +423,24 @@ class ImportManager:
             url_lower = (url or '').lower()
             fmt = (format_hint or '').lower().strip()
 
-            if not ext or len(ext) > 6 or ext in ('.php', '.asp', '.aspx', '.jsp', '.cgi', '.dat', '.bin', '.tmp', '.action'):
-                if 'format=geojson' in url_lower or 'geojson' in fmt:
+            if 'api-adresse.data.gouv.fr' in url_lower or 'ban' in url_lower or 'geocod' in url_lower:
+                ext = '.geojson'
+            elif 'geo.api.gouv.fr' in url_lower or 'outputformat=json' in url_lower or 'outputformat=application/json' in url_lower or 'format=geojson' in url_lower:
+                ext = '.geojson'
+            elif 'format=json' in url_lower:
+                ext = '.json'
+            elif not ext or len(ext) > 6 or ext in ('.php', '.asp', '.aspx', '.jsp', '.cgi', '.dat', '.bin', '.tmp', '.action', '/'):
+                if 'geojson' in fmt or 'geojson' in url_lower:
                     ext = '.geojson'
-                elif 'format=json' in url_lower or 'json' in fmt:
+                elif 'json' in fmt or 'json' in url_lower:
                     ext = '.json'
-                elif 'format=csv' in url_lower or 'csv' in fmt:
+                elif 'csv' in fmt or 'csv' in url_lower:
                     ext = '.csv'
-                elif 'format=xlsx' in url_lower or 'xlsx' in fmt or 'excel' in fmt:
+                elif 'xlsx' in fmt or 'excel' in fmt or 'xlsx' in url_lower:
                     ext = '.xlsx'
-                elif 'format=xls' in url_lower or 'xls' in fmt:
+                elif 'xls' in fmt or 'xls' in url_lower:
                     ext = '.xls'
-                elif 'format=ods' in url_lower or 'ods' in fmt:
+                elif 'ods' in fmt or 'ods' in url_lower:
                     ext = '.ods'
                 elif 'parquet' in fmt:
                     ext = '.parquet'
@@ -423,9 +455,9 @@ class ImportManager:
                 elif 'tif' in fmt or 'tiff' in fmt:
                     ext = '.tif'
                 elif 'table' in fmt:
-                    ext = '.json' if 'json' in fmt or 'format=json' in url_lower else '.csv'
+                    ext = '.csv'
                 else:
-                    ext = '.dat'
+                    ext = '.geojson' if ('search' in url_lower or 'api' in url_lower) else '.dat'
 
             safe_name = "".join([c for c in filename_hint if c.isalnum() or c in ('_', '-')])
             if not safe_name:
@@ -503,17 +535,7 @@ class ImportManager:
         if is_spreadsheet:
             if not dest_file.lower().endswith(('.xlsx', '.xls', '.ods', '.parquet')):
                 sheet_ext = '.xlsx' if ('xlsx' in fmt or 'excel' in fmt) else ('.xls' if 'xls' in fmt else ('.parquet' if 'parquet' in fmt else '.ods'))
-                proper_sheet = f"{dest_file}{sheet_ext}"
-                if os.path.exists(proper_sheet):
-                    try:
-                        os.remove(proper_sheet)
-                    except Exception:
-                        pass
-                try:
-                    os.rename(dest_file, proper_sheet)
-                    return proper_sheet
-                except Exception:
-                    pass
+                return self._safe_rename(dest_file, f"{dest_file}{sheet_ext}")
             return dest_file
 
         # 2. Traitement ZIP (.zip ou magic bytes)
@@ -527,27 +549,15 @@ class ImportManager:
 
         # 3. Traitement JSON / GeoJSON par magic bytes
         if magic_type == 'json' and not dest_file.endswith(('.json', '.geojson')):
-            proper_json = f"{dest_file}.json"
-            if os.path.exists(proper_json):
-                os.remove(proper_json)
-            os.rename(dest_file, proper_json)
-            return proper_json
+            return self._safe_rename(dest_file, f"{dest_file}.json")
 
         # 4. Traitement SQLite / GPKG par magic bytes
         if magic_type == 'sqlite' and not dest_file.endswith(('.gpkg', '.sqlite', '.db')):
-            proper_gpkg = f"{dest_file}.gpkg"
-            if os.path.exists(proper_gpkg):
-                os.remove(proper_gpkg)
-            os.rename(dest_file, proper_gpkg)
-            return proper_gpkg
+            return self._safe_rename(dest_file, f"{dest_file}.gpkg")
 
         # 5. Traitement XML par magic bytes
         if magic_type == 'xml' and not dest_file.endswith(('.xml', '.gml')):
-            proper_xml = f"{dest_file}.xml"
-            if os.path.exists(proper_xml):
-                os.remove(proper_xml)
-            os.rename(dest_file, proper_xml)
-            return proper_xml
+            return self._safe_rename(dest_file, f"{dest_file}.xml")
 
         return dest_file
 
