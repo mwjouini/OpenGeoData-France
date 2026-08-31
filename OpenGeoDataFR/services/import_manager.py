@@ -27,6 +27,7 @@ import csv
 import re
 import time
 import concurrent.futures
+from ..models import DataItem, UrbanDocItem
 
 try:
     from qgis.core import (
@@ -1510,9 +1511,28 @@ class ImportManager:
     def _import_wms_layer(self, item, target_crs=None, territory_filter=None):
         raw_url = item.extra.get('wms_url') or item.url or "https://data.geopf.fr/wms-r/ows"
 
-        # 1. Gestion des couches XYZ (OpenStreetMap, etc.)
-        if '{z}' in raw_url or 'tile.openstreetmap' in raw_url.lower() or 'xyz' in str(item.extra.get('format', '')).lower():
+        # 1. Gestion des couches XYZ (OpenStreetMap, RainViewer Radar Météo Temps Réel, etc.)
+        if '{z}' in raw_url or 'tile.openstreetmap' in raw_url.lower() or 'rainviewer' in raw_url.lower() or 'xyz' in str(item.extra.get('format', '')).lower():
             xyz_url = raw_url
+            if 'rainviewer' in raw_url.lower() or 'radar' in item.id.lower() or 'satellite' in item.id.lower():
+                try:
+                    with self._fetch_url("https://api.rainviewer.com/public/weather-maps.json", timeout=5) as rv_resp:
+                        if rv_resp.status == 200:
+                            rv_data = json.loads(rv_resp.read().decode('utf-8'))
+                            host = rv_data.get('host', 'https://tilecache.rainviewer.com')
+                            if 'satellite' in item.id.lower() or 'satellite' in item.title.lower():
+                                sat_past = rv_data.get('satellite', {}).get('infrared', [])
+                                if sat_past:
+                                    latest_path = sat_past[-1].get('path')
+                                    xyz_url = f"{host}{latest_path}/256/{{z}}/{{x}}/{{y}}/0/1_1.png"
+                            else:
+                                radar_past = rv_data.get('radar', {}).get('past', [])
+                                if radar_past:
+                                    latest_path = radar_past[-1].get('path')
+                                    xyz_url = f"{host}{latest_path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
+                except Exception as rv_err:
+                    QgsMessageLog.logMessage(f"RainViewer dynamic radar fetch: {rv_err}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+
             if '{z}' not in xyz_url:
                 xyz_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             encoded_url = urllib.parse.quote(xyz_url, safe=':/?&=%-')
@@ -1523,7 +1543,7 @@ class ImportManager:
                 self._add_layer_safely(final_layer)
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
                     self._create_and_add_wms_mask(item, territory_filter)
-                return True, f"Fond de carte XYZ '{item.title}' ajouté avec succès."
+                return True, f"Couche dynamique XYZ '{item.title}' ajoutée avec succès."
 
         clean_url, url_layer_name = self._clean_ogc_url(raw_url)
 

@@ -119,9 +119,20 @@ SEARCH_SUGGESTIONS = [
     "Réseau Ferré National et Gares SNCF",
     "Réseau Routier National et Autoroutes",
 
-    # Fonds IGN & Imagerie
+    # Météorologie & Radar
+    "Radar de Pluie & Précipitations en Temps Réel",
+    "Imagerie Satellite Nuages & Infrarouge Temps Réel",
+    "Stations Météorologiques & Climatologiques",
+
+    # Fonds IGN, Imagerie Spatiale & Historique
     "Plan IGN V2 Multi-échelles",
     "Photographies aériennes Ortho HR IGN",
+    "Photographies Aériennes Historiques 1950-1965",
+    "Imagerie Satellite Très Haute Résolution Pléiades 50 cm",
+    "Imagerie Satellite SPOT 6-7",
+    "Orthophotos Infrarouge Couleur IRC (Végétation)",
+    "Carte de l'État-Major 1820-1866 IGN",
+    "SCAN 50 Historique de 1950",
     "Cartes Topographiques SCAN 25 IGN",
     "Relief ombré et MNT RGE ALTI IGN",
     "Courbes de niveau IGN",

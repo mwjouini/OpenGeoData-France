@@ -544,8 +544,42 @@ class PresetLibrary:
             ),
 
             # =========================================================================
-            # 9. MÉTÉO & CLIMAT (Infoclimat & Météo-France SYNOP)
+            # 9. MÉTÉOROLOGIE, CLIMAT & RADAR TEMPS RÉEL (Météo-France / RainViewer)
             # =========================================================================
+            DataItem(
+                item_id="preset_radar_pluie_temps_reel",
+                title="Radar de Pluie & Précipitations en Temps Réel (France / Europe)",
+                source="RainViewer / Radar Météo Direct",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="Temps Réel (10 min)",
+                url="https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png",
+                service_type="WMS",
+                extra={
+                    'format': 'Tuiles XYZ Temps Réel',
+                    'category': 'meteo',
+                    'description': 'Échos radar de pluie et précipitations en direct actualisés toutes les 10 minutes avec palette d\'intensité'
+                }
+            ),
+            DataItem(
+                item_id="preset_satellite_infrarouge_temps_reel",
+                title="Imagerie Satellite Nuages & Infrarouge (Temps Réel)",
+                source="EUMETSAT / Satellite Météo Direct",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="Temps Réel",
+                url="https://tilecache.rainviewer.com/v2/satellite/nowcast_0/256/{z}/{x}/{y}/0/1_1.png",
+                service_type="WMS",
+                extra={
+                    'format': 'Tuiles XYZ Temps Réel',
+                    'category': 'meteo',
+                    'description': 'Couverture nuageuse et masses d\'air observées par satellite météorologique géostationnaire en direct'
+                }
+            ),
             DataItem(
                 item_id="preset_meteo_stations",
                 title="Stations Météorologiques & Climatologiques (Météo-France / SYNOP)",
@@ -560,16 +594,16 @@ class PresetLibrary:
                 extra={
                     'format': 'GeoJSON',
                     'category': 'meteo',
-                    'description': 'Réseau officiel des stations météorologiques SYNOP et StatIC avec coordonnées et altitude'
+                    'description': 'Réseau officiel des 600+ stations météorologiques SYNOP et StatIC avec température, vent, humidité, coordonnées et altitude'
                 }
             ),
 
             # =========================================================================
-            # 10. FONDS DE CARTE & IMAGERIE IGN (GéoPlateforme WMS-R / XYZ)
+            # 10. IMAGERIE AÉRIENNE, SATELLITE & HISTORIQUE (GéoPlateforme IGN / CNES)
             # =========================================================================
             DataItem(
                 item_id="preset_ortho_ign",
-                title="Photographies aériennes Ortho HR® (IGN GéoPlateforme)",
+                title="Photographies Aériennes Haute Résolution Ortho HR® (IGN GéoPlateforme)",
                 source="GéoPlateforme IGN",
                 data_type="wms",
                 territory="France",
@@ -579,11 +613,125 @@ class PresetLibrary:
                 url="https://data.geopf.fr/wms-r/ows",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'ORTHOIMAGERY.ORTHOPHOTOS',
+                    'layer_name': 'HR.ORTHOIMAGERY.ORTHOPHOTOS',
                     'wms_url': 'https://data.geopf.fr/wms-r/ows',
                     'category': 'raster',
                     'format': 'Flux WMS',
-                    'description': 'Mosaïque d\'orthophotographies aériennes haute résolution de l\'IGN'
+                    'description': 'Orthophotographie aérienne la plus récente et précise (résolution 20 cm) sur l\'ensemble du territoire français'
+                }
+            ),
+            DataItem(
+                item_id="preset_ortho_1950_1965",
+                title="Photographies Aériennes Historiques 1950-1965 (IGN Remonter le Temps)",
+                source="IGN / Remonter le Temps",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="1950-1965",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ORTHOIMAGERY.ORTHOPHOTOS.1950-1965',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Mosaïque nationale de clichés aériens argentiques historiques des années 1950-1965 pour le suivi de l\'évolution du territoire et de l\'urbanisation'
+                }
+            ),
+            DataItem(
+                item_id="preset_pleiades_sat",
+                title="Imagerie Satellite Très Haute Résolution Pléiades 50 cm (CNES / IGN)",
+                source="CNES / GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2025-2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ORTHOIMAGERY.ORTHO-SAT.PLEIADES.2025',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Imagerie spatiale optique satellitaire Pléiades à très haute résolution (50 cm)'
+                }
+            ),
+            DataItem(
+                item_id="preset_spot_sat",
+                title="Imagerie Satellite SPOT 6-7 (CNES / IGN)",
+                source="CNES / GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2025",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ORTHOIMAGERY.ORTHO-SAT.SPOT.2025',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Couverture satellitaire optique haute résolution SPOT 6-7 pour l\'observation de la Terre'
+                }
+            ),
+            DataItem(
+                item_id="preset_ortho_irc",
+                title="Orthophotos Infrarouge Couleur IRC (IGN - Santé de la Végétation)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2024-2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'ORTHOIMAGERY.ORTHOPHOTOS.IRC',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Imagerie fausses couleurs proche infrarouge (PIR) pour l\'analyse de la vigueur végétale, des forêts et des zones humides'
+                }
+            ),
+            DataItem(
+                item_id="preset_etat_major",
+                title="Carte de l'État-Major 1820-1866 (IGN)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="1820-1866",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'GEOGRAPHICALGRIDSYSTEMS.ETATMAJOR40',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Cartes historiques militaires d\'État-Major gravées au 1/40 000 (XIXe siècle)'
+                }
+            ),
+            DataItem(
+                item_id="preset_scan50_1950",
+                title="SCAN 50® Historique de 1950 (IGN)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="1950",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN50.1950',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'raster',
+                    'format': 'Flux WMS',
+                    'description': 'Cartographie topographique historique de référence au 1/50 000 de l\'année 1950'
                 }
             ),
             DataItem(
