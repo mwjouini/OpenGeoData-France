@@ -278,16 +278,16 @@ class TerritoryFilterDialog(QDialog):
         # 2. EPCI sélectionné
         epci_code = self.cmb_epcis.currentData()
         if epci_code:
-            return epci_code
+            return f"epci:{epci_code}"
 
         # 3. Département sélectionné
         dep_code = self.cmb_departements.currentData()
         if dep_code:
-            return dep_code
+            return f"dep:{dep_code}"
 
         # 4. Région sélectionnée
         region_code = self.cmb_regions.currentData()
         if region_code:
-            return region_code
+            return f"reg:{region_code}"
 
         return ""

@@ -26,6 +26,7 @@ import ssl
 import csv
 import re
 import time
+import concurrent.futures
 
 try:
     from qgis.core import (
@@ -163,9 +164,10 @@ class ImportManager:
 
     def _get_territory_geometry(self, territory_filter):
         """
-        Récupère la géométrie polygonale officielle du territoire (Commune(s) / Département / EPCI)
-        avec geometry=contour depuis l'API GeoAPI (geo.api.gouv.fr) pour le découpage spatial géométrique.
-        Gère les listes de codes multiples séparés par des virgules (ex: 60309, 60321, 60395...).
+        Récupère la géométrie polygonale officielle du territoire (Commune(s) / Département / EPCI / Région)
+        avec mise en cache disque persistante et requêtes parallèles haute vitesse.
+        Gère les listes de codes multiples (ex: 60010,60012,60054...), les EPCI (epci:200067098),
+        les départements (dep:60) et les régions (reg:32).
         """
         if not territory_filter or str(territory_filter).lower() in ("france", "toutes les échelles", "all"):
             return None, None
@@ -176,22 +178,100 @@ class ImportManager:
             return self._geom_cache[cache_key]
 
         geom_crs = "EPSG:4326"
-        codes = [c.strip() for c in tf.split(',') if c.strip()]
-        collected_geoms = []
+        geom_cache_dir = os.path.join(self.cache_dir, "geoms")
+        os.makedirs(geom_cache_dir, exist_ok=True)
 
-        for code in codes:
+        def _fetch_or_load_json(url, cache_filename):
+            cache_file = os.path.join(geom_cache_dir, cache_filename)
+            if os.path.exists(cache_file) and os.path.getsize(cache_file) > 10:
+                try:
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception:
+                    pass
             try:
-                if code.isdigit() and len(code) == 5:
-                    url = f"https://geo.api.gouv.fr/communes/{code}?fields=nom,code&geometry=contour&format=geojson"
-                elif code.isdigit() and (len(code) == 2 or len(code) == 3):
-                    url = f"https://geo.api.gouv.fr/departements/{code}?fields=nom,code&geometry=contour&format=geojson"
-                else:
-                    clean_code = urllib.parse.quote(code)
-                    url = f"https://geo.api.gouv.fr/communes?nom={clean_code}&fields=nom,code&geometry=contour&format=geojson&limit=1"
-
-                with self._fetch_url(url, timeout=6) as resp:
+                with self._fetch_url(url, timeout=12) as resp:
                     if resp.status == 200:
                         data = json.loads(resp.read().decode('utf-8'))
+                        try:
+                            with open(cache_file, 'w', encoding='utf-8') as f:
+                                json.dump(data, f)
+                        except Exception:
+                            pass
+                        return data
+            except Exception as e:
+                QgsMessageLog.logMessage(f"Erreur téléchargement contour ({url}): {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+            return None
+
+        def _geom_from_dict(geom_dict):
+            if not geom_dict:
+                return None
+            if QgsJsonUtils is not None and hasattr(QgsJsonUtils, 'geometryFromGeoJson'):
+                try:
+                    return QgsJsonUtils.geometryFromGeoJson(json.dumps(geom_dict))
+                except Exception:
+                    return None
+            return geom_dict
+
+        collected_geoms = []
+
+        # Cas 1 : EPCI (ex: epci:200067098 ou 9 chiffres)
+        if tf.startswith("epci:") or (tf.isdigit() and len(tf) == 9):
+            epci_code = tf.replace("epci:", "").strip()
+            url = f"https://geo.api.gouv.fr/communes?codeEpci={epci_code}&geometry=contour&format=geojson"
+            data = _fetch_or_load_json(url, f"epci_{epci_code}.geojson")
+            if data and isinstance(data, dict) and 'features' in data:
+                for feat in data['features']:
+                    geom_dict = feat.get('geometry')
+                    if geom_dict:
+                        g = _geom_from_dict(geom_dict)
+                        if g is not None:
+                            collected_geoms.append(g)
+
+        # Cas 2 : Département (ex: dep:60 ou 2/3 chiffres)
+        elif tf.startswith("dep:") or (len(tf) in (2, 3) and (tf.isdigit() or tf.upper() in ('2A', '2B'))):
+            dep_code = tf.replace("dep:", "").strip().upper()
+            url = f"https://geo.api.gouv.fr/departements/{dep_code}?geometry=contour&format=geojson"
+            data = _fetch_or_load_json(url, f"dep_{dep_code}.geojson")
+            if data:
+                geom_dict = data.get('geometry') if isinstance(data, dict) and 'geometry' in data else (data['features'][0].get('geometry') if isinstance(data, dict) and data.get('features') else None)
+                if geom_dict:
+                    g = _geom_from_dict(geom_dict)
+                    if g is not None:
+                        collected_geoms.append(g)
+
+        # Cas 3 : Région (ex: reg:32)
+        elif tf.startswith("reg:"):
+            reg_code = tf.replace("reg:", "").strip()
+            url = f"https://geo.api.gouv.fr/regions/{reg_code}?geometry=contour&format=geojson"
+            data = _fetch_or_load_json(url, f"reg_{reg_code}.geojson")
+            if data:
+                geom_dict = data.get('geometry') if isinstance(data, dict) and 'geometry' in data else (data['features'][0].get('geometry') if isinstance(data, dict) and data.get('features') else None)
+                if geom_dict:
+                    g = _geom_from_dict(geom_dict)
+                    if g is not None:
+                        collected_geoms.append(g)
+
+        # Cas 4 : Communes uniques ou multiples (ex: 60010,60012,60054...)
+        else:
+            codes = [c.strip() for c in tf.split(',') if c.strip()]
+            
+            def _fetch_commune_worker(c):
+                c_clean = c.replace("epci:", "").replace("dep:", "").replace("reg:", "").replace("com:", "").strip()
+                if c_clean.isdigit() and len(c_clean) == 5:
+                    u = f"https://geo.api.gouv.fr/communes/{c_clean}?fields=nom,code&geometry=contour&format=geojson"
+                    cf = f"com_{c_clean}.geojson"
+                else:
+                    u = f"https://geo.api.gouv.fr/communes?nom={urllib.parse.quote(c_clean)}&fields=nom,code&geometry=contour&format=geojson&limit=1"
+                    cf = f"com_nom_{urllib.parse.quote(c_clean)}.geojson"
+                return _fetch_or_load_json(u, cf)
+
+            # Exécution parallèle multithreadée
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, len(codes) or 1)) as executor:
+                futures = [executor.submit(_fetch_commune_worker, c) for c in codes]
+                for f in concurrent.futures.as_completed(futures):
+                    data = f.result()
+                    if data:
                         geom_dict = None
                         if isinstance(data, dict):
                             if 'geometry' in data and data['geometry']:
@@ -202,15 +282,17 @@ class ImportManager:
                             geom_dict = data[0].get('geometry') if isinstance(data[0], dict) else None
 
                         if geom_dict:
-                            g = QgsJsonUtils.geometryFromGeoJson(json.dumps(geom_dict))
-                            if g and not g.isEmpty():
+                            g = _geom_from_dict(geom_dict)
+                            if g is not None:
                                 collected_geoms.append(g)
-            except Exception as ex:
-                QgsMessageLog.logMessage(f"Extraction du contour pour {code}: {ex}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 
         if not collected_geoms:
             self._geom_cache[cache_key] = (None, geom_crs)
             return None, geom_crs
+
+        if QgsGeometry is None:
+            self._geom_cache[cache_key] = (collected_geoms[0], geom_crs)
+            return collected_geoms[0], geom_crs
 
         if len(collected_geoms) == 1:
             fused_geom = collected_geoms[0]
@@ -221,6 +303,13 @@ class ImportManager:
                 fused_geom = collected_geoms[0]
                 for other in collected_geoms[1:]:
                     fused_geom = fused_geom.combine(other)
+
+        # Réparation automatique si la géométrie résultante présente des auto-intersections
+        if hasattr(fused_geom, 'makeValid') and not fused_geom.isGeosValid():
+            try:
+                fused_geom = fused_geom.makeValid()
+            except Exception:
+                pass
 
         self._geom_cache[cache_key] = (fused_geom, geom_crs)
         return fused_geom, geom_crs
@@ -817,7 +906,8 @@ class ImportManager:
                     fields = [f.name() for f in target_for_filters.fields()]
                     subset_clauses = []
 
-                    for clean_filter in filter_codes:
+                    for raw_code in filter_codes:
+                        clean_filter = raw_code.replace("epci:", "").replace("dep:", "").replace("reg:", "").replace("com:", "").strip()
                         dep_code = None
                         if clean_filter.isdigit() and len(clean_filter) == 5:
                             dep_code = clean_filter[:2]
@@ -832,7 +922,7 @@ class ImportManager:
                             elif fname_lower in ('insee_dep', 'code_dep', 'dep', 'departement', 'code_dept', 'dpt', 'cd_dep'):
                                 if dep_code:
                                     subset_clauses.append(f"{fname} = '{dep_code}'")
-                                elif clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3):
+                                elif (clean_filter.isdigit() and (len(clean_filter) == 2 or len(clean_filter) == 3)) or clean_filter.upper() in ('2A', '2B'):
                                     subset_clauses.append(f"{fname} = '{clean_filter}'")
                             elif fname_lower in ('code_reg', 'reg', 'insee_reg', 'reg_code', 'region', 'cd_reg'):
                                 if clean_filter.isdigit() and len(clean_filter) == 2:
@@ -865,20 +955,26 @@ class ImportManager:
                         terr_bbox = terr_geom_transformed.boundingBox()
                         bbox_request = QgsFeatureRequest().setFilterRect(terr_bbox)
                         clipped_features = []
+                        is_point_layer = target_for_filters.geometryType() == QgsWkbTypes.PointGeometry
+
                         for feat in target_for_filters.getFeatures(bbox_request):
                             if feat.hasGeometry():
                                 g = feat.geometry()
-                                if g.intersects(terr_geom_transformed):
-                                    try:
-                                        inter_geom = g.intersection(terr_geom_transformed)
-                                        if not inter_geom.isEmpty():
-                                            new_feat = QgsFeature(feat)
-                                            new_feat.setGeometry(inter_geom)
-                                            clipped_features.append(new_feat)
-                                        else:
-                                            clipped_features.append(feat)
-                                    except Exception:
+                                if is_point_layer:
+                                    if terr_geom_transformed.contains(g) or g.intersects(terr_geom_transformed):
                                         clipped_features.append(feat)
+                                else:
+                                    if g.intersects(terr_geom_transformed):
+                                        try:
+                                            inter_geom = g.intersection(terr_geom_transformed)
+                                            if inter_geom and not inter_geom.isEmpty():
+                                                new_feat = QgsFeature(feat)
+                                                new_feat.setGeometry(inter_geom)
+                                                clipped_features.append(new_feat)
+                                            else:
+                                                clipped_features.append(feat)
+                                        except Exception:
+                                            clipped_features.append(feat)
 
                         if clipped_features:
                             geom_type_str = QgsWkbTypes.displayString(target_for_filters.wkbType())

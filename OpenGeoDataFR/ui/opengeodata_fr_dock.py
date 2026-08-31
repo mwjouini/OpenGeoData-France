@@ -874,21 +874,31 @@ class OpenGeoDataFRDock(QDockWidget):
                     continue
 
             # 4. Filtre par territoire
-            if terr_filter:
+            if terr_filter and terr_filter not in ("france", "all", "toutes les échelles"):
                 title_text = (getattr(item, 'title', '') or '').lower()
                 code_insee = str(item.extra.get('code_insee', '')).lower() if hasattr(item, 'extra') and item.extra else ''
                 dep_code = str(item.extra.get('dep_code', '')).lower() if hasattr(item, 'extra') and item.extra else ''
 
                 is_national_layer = item_scale == "france" or item_terr == "france"
 
-                matched = (
-                    is_national_layer or
-                    terr_filter in item_terr or
-                    terr_filter in title_text or
-                    terr_filter == code_insee or
-                    terr_filter == dep_code or
-                    (len(terr_filter) == 5 and code_insee.startswith(terr_filter[:2]))
-                )
+                # Extraction de tous les codes nettoyés
+                raw_codes = [c.replace("epci:", "").replace("dep:", "").replace("reg:", "").replace("com:", "").strip() for c in terr_filter.split(',') if c.strip()]
+                
+                matched = is_national_layer
+                if not matched:
+                    for c in raw_codes:
+                        if (
+                            c in item_terr or
+                            c in title_text or
+                            c == code_insee or
+                            c == dep_code or
+                            (len(c) == 5 and code_insee == c) or
+                            (len(c) == 5 and dep_code == c[:2]) or
+                            (len(c) in (2, 3) and (code_insee.startswith(c) or dep_code == c))
+                        ):
+                            matched = True
+                            break
+
                 if not matched:
                     continue
 
