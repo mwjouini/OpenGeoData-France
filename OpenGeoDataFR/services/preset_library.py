@@ -171,6 +171,44 @@ class PresetLibrary:
                 }
             ),
             DataItem(
+                item_id="preset_pci_parcelles",
+                title="Plan Cadastral - Parcelles Cadastrales (IGN Parcellaire Express)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'CADASTRALPARCELS.PARCELLAIRE_EXPRESS',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'cadastre',
+                    'format': 'Flux WMS',
+                    'description': 'Parcelles cadastrales avec identifiants et contenances'
+                }
+            ),
+            DataItem(
+                item_id="preset_pci_batiments",
+                title="Plan Cadastral - Bâtiments Cadastraux (IGN Parcellaire Express)",
+                source="GéoPlateforme IGN",
+                data_type="wms",
+                territory="France",
+                scale="france",
+                crs="EPSG:3857",
+                date="2026",
+                url="https://data.geopf.fr/wms-r/ows",
+                service_type="WMS",
+                extra={
+                    'layer_name': 'BUILDINGS.PARCELLAIRE_EXPRESS',
+                    'wms_url': 'https://data.geopf.fr/wms-r/ows',
+                    'category': 'cadastre',
+                    'format': 'Flux WMS',
+                    'description': 'Emprises du bâti cadastral au sol'
+                }
+            ),
+            DataItem(
                 item_id="preset_ban_nationale",
                 title="Base Adresse Nationale BAN - France Complète",
                 source="data.gouv.fr (IGN / DINUM)",
@@ -183,7 +221,7 @@ class PresetLibrary:
                 service_type="HTTP",
                 extra={
                     'format': 'CSV.GZ',
-                    'category': 'admin',
+                    'category': 'cadastre',
                     'description': 'Référentiel national officiel des adresses postales géolocalisées'
                 }
             ),
@@ -544,7 +582,7 @@ class PresetLibrary:
             ),
 
             # =========================================================================
-            # 9. MÉTÉOROLOGIE, CLIMAT & RADAR TEMPS RÉEL (Météo-France / RainViewer)
+            # 9. MÉTÉOROLOGIE, CLIMAT & RADAR TEMPS RÉEL (Météo-France / EUMETSAT / RainViewer)
             # =========================================================================
             DataItem(
                 item_id="preset_radar_pluie_temps_reel",

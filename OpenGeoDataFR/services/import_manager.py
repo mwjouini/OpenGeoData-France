@@ -1570,7 +1570,7 @@ class ImportManager:
             xyz_url = raw_url
             if 'rainviewer' in raw_url.lower() or 'radar' in item.id.lower() or 'satellite' in item.id.lower():
                 try:
-                    with self._fetch_url("https://api.rainviewer.com/public/weather-maps.json", timeout=5) as rv_resp:
+                    with self._fetch_url("https://api.rainviewer.com/public/weather-maps.json", timeout=2, max_retries=1) as rv_resp:
                         if rv_resp.status == 200:
                             rv_data = json.loads(rv_resp.read().decode('utf-8'))
                             host = rv_data.get('host', 'https://tilecache.rainviewer.com')
@@ -1591,11 +1591,21 @@ class ImportManager:
                 xyz_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             
             is_rainviewer = 'rainviewer' in xyz_url.lower() or 'radar' in item.id.lower() or 'satellite' in item.id.lower()
-            zmax_val = 12 if is_rainviewer else 19
-            encoded_url = urllib.parse.quote(xyz_url, safe=':/?&=%-')
+            # RainViewer limite ses tuiles au zoom 6 (les zooms >= 8 renvoient une image d'erreur 'Zoom Level Not Supported')
+            zmax_val = 6 if is_rainviewer else 19
+            encoded_url = urllib.parse.quote(xyz_url, safe=':/?&=%-{}')
             uri = f"type=xyz&url={encoded_url}&zmax={zmax_val}&zmin=0"
             layer = QgsRasterLayer(uri, item.title, "wms")
             if layer.isValid():
+                if is_rainviewer:
+                    # Protection automatique : masquer les tuiles météo au niveau parcelle/bâtiment (< 1:50 000)
+                    try:
+                        layer.setScaleBasedVisibility(True)
+                        layer.setMaximumScale(50000)
+                        layer.setMinimumScale(0)
+                    except Exception:
+                        pass
+
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
                 self._add_layer_safely(final_layer)
                 if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
@@ -1634,18 +1644,28 @@ class ImportManager:
                 if "https://data.geopf.fr/wms-v/ows" not in candidate_urls:
                     candidate_urls.insert(0, "https://data.geopf.fr/wms-v/ows")
 
+        candidate_crs = []
+        if item.crs and item.crs not in candidate_crs:
+            candidate_crs.append(item.crs)
+        if target_crs and "Native" not in target_crs and target_crs not in candidate_crs:
+            candidate_crs.append(target_crs)
+        for default_c in ("EPSG:3857", "EPSG:4326", "EPSG:2154"):
+            if default_c not in candidate_crs:
+                candidate_crs.append(default_c)
+
         for endpoint_url in candidate_urls:
-            uri = f"contextualWMSLegend=0&crs={crs_code}&dpiMode=7&featureCount=10&format=image/png&layers={layer_name}&styles=&url={urllib.parse.quote(endpoint_url, safe=':/?&=%-')}"
-            layer = QgsRasterLayer(uri, item.title, "wms")
+            for crs_code in candidate_crs:
+                uri = f"contextualWMSLegend=0&crs={crs_code}&dpiMode=7&featureCount=10&format=image/png&layers={layer_name}&styles=&url={urllib.parse.quote(endpoint_url, safe=':/?&=%-')}"
+                layer = QgsRasterLayer(uri, item.title, "wms")
 
-            if layer.isValid():
-                final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                self._add_layer_safely(final_layer)
+                if layer.isValid():
+                    final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
+                    self._add_layer_safely(final_layer)
 
-                if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
-                    self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
+                    if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
+                        self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
 
-                return True, f"Flux WMS '{item.title}' [{layer_name}, {crs_code}] ajouté avec succès."
+                    return True, f"Flux WMS '{item.title}' [{layer_name}, {crs_code}] ajouté avec succès."
 
         return False, f"Impossible de se connecter au flux WMS : {clean_url}"
 

@@ -65,13 +65,28 @@ class TerritoryFilterDialog(QDialog):
         ("974", "La Réunion", "04"), ("976", "Mayotte", "06")
     ]
 
-    def __init__(self, layer_title="Couche géographique", parent=None):
+    def __init__(self, layer_title="Couche géographique", current_selection="", parent=None):
         super().__init__(parent)
         self.layer_title = layer_title
+        self.current_selection = str(current_selection or "").strip()
         self.setWindowTitle(f"Sélection Territorial & Périmètre - {layer_title}")
         self.resize(540, 520)
 
         self._setup_ui()
+        if self.current_selection:
+            self._apply_initial_selection(self.current_selection)
+
+    def _apply_initial_selection(self, sel):
+        if not sel or sel.lower() in ("france", "all", "toutes les échelles"):
+            self.rad_national.setChecked(True)
+            return
+        self.rad_territorial.setChecked(True)
+        # Pré-sélection départementale si code à 2 chiffres
+        if sel.startswith("dep:") or (len(sel) in (2, 3) and (sel.isdigit() or sel.upper() in ('2A', '2B'))):
+            dep_c = sel.replace("dep:", "").strip().upper()
+            idx = self.cmb_departements.findData(dep_c)
+            if idx >= 0:
+                self.cmb_departements.setCurrentIndex(idx)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -291,3 +306,7 @@ class TerritoryFilterDialog(QDialog):
             return f"reg:{region_code}"
 
         return ""
+
+    def get_filter_string(self):
+        """Alias compatible pour get_selected_filter."""
+        return self.get_selected_filter()
