@@ -3,34 +3,38 @@
 [![QGIS](https://img.shields.io/badge/QGIS-3.22%20à%203.40+-589632.svg?logo=qgis&logoColor=white)](https://qgis.org/)
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/Licence-GPL--2.0%2B-blue.svg)](LICENSE)
-[![GitHub release](https://img.shields.io/badge/Version-1.0.0-orange.svg)](https://github.com/mwjouini/OpenGeoData-France/releases)
+[![GitHub release](https://img.shields.io/badge/Version-1.0.1-orange.svg)](https://github.com/mwjouini/OpenGeoData-France/releases)
 
-**OpenGeoData France** est une extension QGIS conçue pour rechercher, explorer et importer facilement les données géographiques ouvertes françaises directement dans votre projet SIG.
+**OpenGeoData France** est une extension QGIS conçue pour rechercher, explorer, découper et importer facilement toutes les données géographiques ouvertes françaises directement dans votre projet SIG.
 
 ---
 
-## Fonctionnalités principales
+## Fonctionnalités principales (v1.0.1)
 
-### 1. Moteur de recherche sémantique & NLP local
-- **Compréhension du langage naturel** : Saisissez des requêtes en langage courant telles que :
-  - *« Je veux le cadastre et le PLU de Beauvais »*
-  - *« Pistes cyclables et gares dans l'Oise »*
-  - *« Zones inondables et ZNIEFF à Bordeaux »*
-- **Reconnaissance d'entités territoriales (NER)** : Détection automatique des communes françaises, codes postaux, codes INSEE et départements.
-- **Indexation vectorielle et synonymes** : Recherche tolérante aux fautes de frappe et enrichie par un thésaurus géomatique (*parcelles, zonages, biodiversité, risques, transports...*).
-- **Fonctionnement 100% local et gratuit** : Traitement en local dans QGIS, sans aucune clé API payante ou dépendance externe.
+### 1. Moteur de recherche unifié & filtres territoriaux multi-échelles
+- **Recherche par mots-clés et référentiels** : Accès direct et instantané à plus de 1 200 API et services ouverts nationaux et régionaux.
+- **Sélecteur territorial intelligent en cascade** :
+  - Sélection par **Région**, **Département**, **EPCI (Intercommunalité)** ou **liste de communes multiples**.
+  - Cache disque local persistant des contours (`<0.001s`) et téléchargement parallèle multithreadé.
+  - Découpage vectoriel et masquage d'emprise adaptatifs (points, lignes, polygones et flux WMS raster).
 
-### 2. Catalogue de 28 presets officiels prêts à l'emploi
-Accédez rapidement aux principaux jeux de données de référence :
-- **Cadastre & foncier** : Parcelles cadastrales (PCI Etalab / DGFiP), bâtiments cadastraux, plan cadastral WMS.
-- **Bâti & topographie** : BD TOPO® Bâtiments avec hauteurs et attributs (IGN).
-- **Adresses** : Base Adresse Nationale (BAN).
-- **Urbanisme & planification** : Documents d'urbanisme (PLU/PLUi/POS) et Servitudes d'Utilité Publique (SUP) du Géoportail de l'Urbanisme.
-- **Environnement & biodiversité** : Réseau Natura 2000 (SIC/ZSC & ZPS), ZNIEFF Type 1 et Type 2 (INPN / OFB / PatriNat).
-- **Risques & géologie** : Plans de Prévention des Risques Naturels (PPRN Géorisques), cavités souterraines et mouvements de terrain (BRGM).
-- **Transports & mobilités** : Aménagements cyclables nationaux (BNLC), réseau ferré et gares (SNCF Réseau).
-- **Énergie & réseaux** : Bornes de recharge pour véhicules électriques (IRVE), installations de production d'électricité EnR.
-- **Imagerie & fonds raster** : Orthophotos Ortho HR®, carte IGN, plan IGN vecteur, Scan 25 et relief ombré (GéoPlateforme).
+### 2. Catalogue enrichi de 45 préréglages officiels prêts à l'emploi
+- **Foncier & Cadastre** : Parcelles cadastrales (PCI Etalab / DGFiP), bâti, sections, lieux-dits, plan cadastral WMS Parcellaire Express.
+- **Urbanisme réglementaire (GPU)** : Documents d'urbanisme (PLU/PLUi/POS), zonages (Zones U, AU, A, N), prescriptions et Servitudes d'Utilité Publique (SUP).
+- **Adresses & Référentiels** : Base Adresse Nationale (BAN) et géocodage haute performance.
+- **Météorologie & Climat en direct** :
+  - **Radar de pluie & précipitations en temps réel** (actualisé toutes les 10 minutes).
+  - **Imagerie satellite nuages & infrarouge** en continu.
+  - **Réseau des stations météo SYNOP** et climatologiques (Météo-France / Infoclimat).
+- **Imagerie spatiale, aérienne & historique** *(Suivi de l'évolution du territoire)* :
+  - **Photographies aériennes haute résolution Ortho HR® 20 cm** (IGN).
+  - **Photos aériennes historiques 1950-1965** (*IGN Remonter le Temps*).
+  - **Imagerie satellite très haute résolution Pléiades 50 cm** et **SPOT 6-7** (CNES / IGN).
+  - **Orthophotos Infrarouge Couleur (IRC)** pour l'analyse de la vigueur végétale et des forêts.
+  - **Cartes historiques d'État-Major (1820-1866)** et **SCAN 50 (1950)**.
+- **Environnement & Risques** : Natura 2000, ZNIEFF 1 & 2, Réserves naturelles, PPRN Inondations (EAIP), Aléa retrait-gonflement des argiles (RGA), Géologie 1/50 000 (BRGM).
+- **Transports & Mobilités** : Voies BD TOPO®, aménagements cyclables (BNLC), réseau ferré et gares (SNCF), aires de covoiturage et bornes de recharge IRVE.
+- **Logement & Données tabulaires** : Logements sociaux (RPLS), tables INSEE et conversion de données tabulaires (XLSX, XLS, ODS, CSV, Parquet).
 
 ### 3. Découpage territorial intelligent & masques cartographiques
 - **Découpage vectoriel exact** : Intersection géométrique selon les limites officielles des communes (via GeoAPI contour).
