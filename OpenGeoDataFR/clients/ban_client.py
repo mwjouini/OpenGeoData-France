@@ -92,7 +92,7 @@ class BanClient:
         }
         url = f"{self.API_ADRESSE_URL}?{urllib.parse.urlencode(params)}"
         try:
-            content = fetch_url_bytes(url, timeout_ms=self.timeout * 1000)
+            _ = fetch_url_bytes(url, timeout_ms=self.timeout * 1000)
             return DataItem(
                 item_id=f"api_adresse_{hash(query_text)}",
                 title=f"Géocodage API Adresse BAN : '{query_text}'",

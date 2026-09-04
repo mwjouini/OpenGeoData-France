@@ -627,11 +627,13 @@ class ImportManager:
                             try:
                                 lat = float(lat_val.strip())
                                 lon = float(lon_val.strip())
-                                stop_name = row.get('stop_name') or row.get('name') or row.get('stop_id') or 'Arrêt'
+                                props = {k: v for k, v in row.items() if k not in ('stop_lat', 'stop_lon', 'lat', 'lon')}
+                                if 'nom' not in props and 'name' not in props:
+                                    props['nom'] = row.get('stop_name') or row.get('name') or row.get('stop_id') or 'Arrêt'
                                 features.append({
                                     "type": "Feature",
                                     "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                                    "properties": {k: v for k, v in row.items() if k not in ('stop_lat', 'stop_lon', 'lat', 'lon')}
+                                    "properties": props
                                 })
                             except ValueError:
                                 continue
@@ -704,54 +706,110 @@ class ImportManager:
         features = []
         seen_coords = set()
 
+        lon_lat_pat = re.compile(
+            r'<(?:[a-zA-Z0-9_-]+:)?(?:longitude|lon|pos_x)>\s*([+-]?\d+(?:\.\d+)?)\s*</(?:[a-zA-Z0-9_-]+:)?(?:longitude|lon|pos_x)>'
+            r'[\s\S]{0,250}?'
+            r'<(?:[a-zA-Z0-9_-]+:)?(?:latitude|lat|pos_y)>\s*([+-]?\d+(?:\.\d+)?)\s*</(?:[a-zA-Z0-9_-]+:)?(?:latitude|lat|pos_y)>',
+            re.IGNORECASE
+        )
+        lat_lon_pat = re.compile(
+            r'<(?:[a-zA-Z0-9_-]+:)?(?:latitude|lat|pos_y)>\s*([+-]?\d+(?:\.\d+)?)\s*</(?:[a-zA-Z0-9_-]+:)?(?:latitude|lat|pos_y)>'
+            r'[\s\S]{0,250}?'
+            r'<(?:[a-zA-Z0-9_-]+:)?(?:longitude|lon|pos_x)>\s*([+-]?\d+(?:\.\d+)?)\s*</(?:[a-zA-Z0-9_-]+:)?(?:longitude|lon|pos_x)>',
+            re.IGNORECASE
+        )
+        pos_pat = re.compile(
+            r'<(?:[a-zA-Z0-9_-]+:)?pos>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</(?:[a-zA-Z0-9_-]+:)?pos>',
+            re.IGNORECASE
+        )
+
         for xml_path in xml_files:
             try:
-                tree = ET.parse(xml_path)  # nosec B314
-                root = tree.getroot()
+                with open(xml_path, 'r', encoding='utf-8', errors='ignore') as xf:
+                    xml_content = xf.read()
 
-                for elem in root.iter():
-                    tag_clean = elem.tag.split('}')[-1]
-                    
-                    lon_elem = None
-                    lat_elem = None
-                    for child in elem.iter():
-                        ctag = child.tag.split('}')[-1].lower()
-                        if ctag in ('longitude', 'lon', 'pos_x') and child.text:
-                            lon_elem = child
-                        elif ctag in ('latitude', 'lat', 'pos_y') and child.text:
-                            lat_elem = child
-
-                    if lon_elem is not None and lat_elem is not None and lon_elem.text and lat_elem.text:
-                        try:
-                            lon = float(lon_elem.text.strip())
-                            lat = float(lat_elem.text.strip())
-                            
-                            coord_key = (round(lon, 5), round(lat, 5))
-                            if coord_key in seen_coords:
-                                continue
-                            seen_coords.add(coord_key)
-
-                            name = None
-                            for child in elem.iter():
-                                ctag = child.tag.split('}')[-1].lower()
-                                if ctag in ('name', 'nom', 'label', 'description') and child.text:
-                                    name = child.text.strip()
-                                    break
-
-                            elem_id = elem.get('id', '')
-                            props = {
-                                "id": elem_id or f"{tag_clean}_{len(features)+1}",
-                                "nom": name or tag_clean,
-                                "type": tag_clean
-                            }
-
-                            features.append({
-                                "type": "Feature",
-                                "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                                "properties": props
-                            })
-                        except ValueError:
+                # 1. lon suivi de lat
+                for match in lon_lat_pat.finditer(xml_content):
+                    try:
+                        lon = float(match.group(1))
+                        lat = float(match.group(2))
+                        coord_key = (round(lon, 5), round(lat, 5))
+                        if coord_key in seen_coords:
                             continue
+                        seen_coords.add(coord_key)
+
+                        start = max(0, match.start() - 300)
+                        end = min(len(xml_content), match.end() + 300)
+                        context = xml_content[start:end]
+                        name_m = re.search(r'<(?:[a-zA-Z0-9_-]+:)?(?:name|nom|label|description)>\s*([^<]+)\s*</', context, re.IGNORECASE)
+                        nom = name_m.group(1).strip() if name_m else "Arrêt NeTEx"
+
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                            "properties": {
+                                "id": f"netex_{len(features)+1}",
+                                "nom": nom,
+                                "type": "StopPlace"
+                            }
+                        })
+                    except (ValueError, IndexError):
+                        continue
+
+                # 2. lat suivi de lon
+                for match in lat_lon_pat.finditer(xml_content):
+                    try:
+                        lat = float(match.group(1))
+                        lon = float(match.group(2))
+                        coord_key = (round(lon, 5), round(lat, 5))
+                        if coord_key in seen_coords:
+                            continue
+                        seen_coords.add(coord_key)
+
+                        start = max(0, match.start() - 300)
+                        end = min(len(xml_content), match.end() + 300)
+                        context = xml_content[start:end]
+                        name_m = re.search(r'<(?:[a-zA-Z0-9_-]+:)?(?:name|nom|label|description)>\s*([^<]+)\s*</', context, re.IGNORECASE)
+                        nom = name_m.group(1).strip() if name_m else "Arrêt NeTEx"
+
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                            "properties": {
+                                "id": f"netex_{len(features)+1}",
+                                "nom": nom,
+                                "type": "StopPlace"
+                            }
+                        })
+                    except (ValueError, IndexError):
+                        continue
+
+                # 3. gml:pos (lat lon)
+                for match in pos_pat.finditer(xml_content):
+                    try:
+                        val1 = float(match.group(1))
+                        val2 = float(match.group(2))
+                        if 41.0 <= val1 <= 52.0 and -6.0 <= val2 <= 11.0:
+                            lat, lon = val1, val2
+                        else:
+                            lon, lat = val1, val2
+                        coord_key = (round(lon, 5), round(lat, 5))
+                        if coord_key in seen_coords:
+                            continue
+                        seen_coords.add(coord_key)
+
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                            "properties": {
+                                "id": f"netex_{len(features)+1}",
+                                "nom": "Arrêt NeTEx",
+                                "type": "StopPlace"
+                            }
+                        })
+                    except (ValueError, IndexError):
+                        continue
+
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur parsing NeTEx XML {xml_path}: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
 

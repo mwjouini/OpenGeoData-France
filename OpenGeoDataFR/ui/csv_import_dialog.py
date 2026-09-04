@@ -192,9 +192,6 @@ class CSVImportDialog(QDialog):
         if not self.headers:
             return
 
-        curr_x = self.cmb_field_x.currentText()
-        curr_y = self.cmb_field_y.currentText()
-
         self.cmb_field_x.blockSignals(True)
         self.cmb_field_y.blockSignals(True)
         self.cmb_field_wkt.blockSignals(True)
