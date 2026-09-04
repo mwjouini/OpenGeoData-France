@@ -15,9 +15,8 @@ experimental=False
 deprecated=False
 icon=icon.png
 changelog=1.0.2:
-    - Fix: Résilience WMS Multi-CRS (EPSG:4326/3857/2154) éliminant les erreurs de connexion "Impossible de se connecter au flux WMS"
-    - Fix: Radar météo RainViewer plafonné à zmax=6 avec sur-échantillonnage natif QGIS (disparition des boîtes "Zoom Level Not Supported")
-    - Add: Préréglages directs pour le Cadastre Parcellaire Express (Parcelles, Bâti), Orthos Historiques 1950-1965 avec masque territorial et flux météo haute vitesse
-    - Fix: Sélecteur territorial (TerritoryFilterDialog) avec cascade fluide Région > Département > EPCI > Communes et pré-sélections automatiques
-    - Fix: Gestion robuste des fichiers temporaires Windows (_safe_rename évitant WinError 32)
-    - Add: Détection automatique des archives multi-couches, conversion tabulaire automatique (COG INSEE, RPLS) et intégration BAN
+    - Correction de l'affichage du radar meteo a fort zoom (suppression des tuiles d'erreur)
+    - Amelioration de la connexion aux flux WMS avec gestion automatique des projections
+    - Ajout des couches Cadastre Parcellaire Express (parcelles, batiments) et photos 1950-1965
+    - Correction de la selection dans le filtre par territoire (communes, EPCI, departements)
+    - Correction d'un probleme de verrouillage de fichiers temporaires sous Windows
