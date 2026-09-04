@@ -21,7 +21,6 @@ import zipfile
 import tempfile
 import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
 import ssl
 import csv
 import re
@@ -188,8 +187,8 @@ class ImportManager:
                 try:
                     with open(cache_file, 'r', encoding='utf-8') as f:
                         return json.load(f)
-                except Exception:
-                    pass
+                except (OSError, json.JSONDecodeError) as read_err:
+                    QgsMessageLog.logMessage(f"[OpenGeoDataFR] Cache contour non lisible : {read_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
             try:
                 with self._fetch_url(url, timeout=12) as resp:
                     if resp.status == 200:
@@ -197,8 +196,8 @@ class ImportManager:
                         try:
                             with open(cache_file, 'w', encoding='utf-8') as f:
                                 json.dump(data, f)
-                        except Exception:
-                            pass
+                        except OSError as write_err:
+                            QgsMessageLog.logMessage(f"[OpenGeoDataFR] Écriture cache contour ignorée : {write_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
                         return data
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur téléchargement contour ({url}): {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
@@ -309,8 +308,8 @@ class ImportManager:
         if hasattr(fused_geom, 'makeValid') and not fused_geom.isGeosValid():
             try:
                 fused_geom = fused_geom.makeValid()
-            except Exception:
-                pass
+            except Exception as valid_err:
+                QgsMessageLog.logMessage(f"[OpenGeoDataFR] makeValid non requis : {valid_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
 
         self._geom_cache[cache_key] = (fused_geom, geom_crs)
         return fused_geom, geom_crs
@@ -379,8 +378,8 @@ class ImportManager:
                 text_sample = header.decode('utf-8-sig', errors='ignore')
                 if any(delim in text_sample for delim in (',', ';', '\t', '|')) and '\n' in text_sample:
                     return 'csv'
-            except Exception:
-                pass
+            except UnicodeDecodeError as dec_err:
+                QgsMessageLog.logMessage(f"[OpenGeoDataFR] Fichier non décodable en texte : {dec_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
 
         except Exception as e:
             QgsMessageLog.logMessage(f"Erreur inspection magic bytes {filepath}: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
@@ -398,8 +397,8 @@ class ImportManager:
             if os.path.exists(dst):
                 try:
                     os.remove(dst)
-                except Exception:
-                    pass
+                except OSError as rem_dst_err:
+                    QgsMessageLog.logMessage(f"[OpenGeoDataFR] Destination occupée : {rem_dst_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
             os.replace(src, dst)
             return dst
         except Exception:
@@ -407,10 +406,11 @@ class ImportManager:
                 shutil.copy2(src, dst)
                 try:
                     os.remove(src)
-                except Exception:
-                    pass
+                except OSError as rem_src_err:
+                    QgsMessageLog.logMessage(f"[OpenGeoDataFR] Source occupée : {rem_src_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
                 return dst
-            except Exception:
+            except Exception as copy_err:
+                QgsMessageLog.logMessage(f"[OpenGeoDataFR] Échec copie : {copy_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
                 return src
 
     def download_file(self, url, filename_hint="downloaded_file", format_hint=None, progress_callback=None):
@@ -507,8 +507,8 @@ class ImportManager:
                         raise RuntimeError(f"Le serveur distant a renvoyé une page HTML au lieu du fichier géographique attendu ({url}).")
                 except RuntimeError:
                     raise
-                except Exception:
-                    pass
+                except OSError as html_check_err:
+                    QgsMessageLog.logMessage(f"[OpenGeoDataFR] Vérification HTML ignorée : {html_check_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
 
         except Exception as e:
             QgsMessageLog.logMessage(f"Erreur téléchargement {url}: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Critical)
@@ -992,7 +992,7 @@ class ImportManager:
                         terr_bbox = terr_geom_transformed.boundingBox()
                         bbox_request = QgsFeatureRequest().setFilterRect(terr_bbox)
                         clipped_features = []
-                        is_point_layer = target_for_filters.geometryType() == QgsWkbTypes.PointGeometry
+                        is_point_layer = target_for_filters.geometryType() == QgsWkbTypes.GeometryType.PointGeometry
 
                         for feat in target_for_filters.getFeatures(bbox_request):
                             if feat.hasGeometry():
@@ -1603,8 +1603,8 @@ class ImportManager:
                         layer.setScaleBasedVisibility(True)
                         layer.setMaximumScale(50000)
                         layer.setMinimumScale(0)
-                    except Exception:
-                        pass
+                    except Exception as scale_err:
+                        QgsMessageLog.logMessage(f"[OpenGeoDataFR] Seuil échelle non appliqué : {scale_err}", "OpenGeoDataFR", Qgis.MessageLevel.Info)
 
                 final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
                 self._add_layer_safely(final_layer)
