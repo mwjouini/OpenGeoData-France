@@ -432,7 +432,7 @@ class PresetLibrary:
             # =========================================================================
             DataItem(
                 item_id="preset_pprn_georisques",
-                title="Risque Inondation - EAIP & PPRN (Géorisques / BRGM)",
+                title="Plans de Prévention des Risques Naturels PPRN (Géorisques)",
                 source="Géorisques / BRGM",
                 data_type="wms",
                 territory="France",
@@ -442,11 +442,11 @@ class PresetLibrary:
                 url="https://georisques.gouv.fr/services",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'MASQ_EAIP',
+                    'layer_name': 'PPRN_ZONE_INOND',
                     'wms_url': 'https://georisques.gouv.fr/services',
                     'category': 'risques',
                     'format': 'Flux WMS',
-                    'description': 'Enveloppes Approchées des Inondations Potentielles cours d\'eau et submersion marine'
+                    'description': 'Périmètres réglementaires et zonages d\'aléas des Plans de Prévention des Risques (inondations, mouvements)'
                 }
             ),
             DataItem(
@@ -461,7 +461,7 @@ class PresetLibrary:
                 url="https://georisques.gouv.fr/services",
                 service_type="WMS",
                 extra={
-                    'layer_name': 'ALEARG',
+                    'layer_name': 'ALEARG_REALISE',
                     'wms_url': 'https://georisques.gouv.fr/services',
                     'category': 'risques',
                     'format': 'Flux WMS',

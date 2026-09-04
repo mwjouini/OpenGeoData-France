@@ -1514,13 +1514,12 @@ class ImportManager:
             sep = "&" if "?" in raw_url else "?"
             capabilities_url = f"{raw_url}{sep}SERVICE=WMS&REQUEST=GetCapabilities" if "GetCapabilities" not in raw_url else raw_url
             with self._fetch_url(capabilities_url, timeout=8) as response:
-                xml_data = response.read()
-                root = ET.fromstring(xml_data)  # nosec B314
-                for elem in root.iter():
-                    if elem.tag.endswith('Name') and elem.text and elem.text.strip():
-                        name = elem.text.strip()
-                        if name.upper() not in ('WMS', 'WFS', 'GETCAPABILITIES', 'WMS_CAPABILITIES', 'DEFAULT', 'GEORISQUES_SERVICES') and not name.startswith('http'):
-                            return name
+                xml_text = response.read().decode('utf-8', errors='ignore')
+                names = re.findall(r'<Name(?:\s+[^>]*)?>\s*([^<]+?)\s*</Name>', xml_text, re.IGNORECASE)
+                for name in names:
+                    name_clean = name.strip()
+                    if name_clean.upper() not in ('WMS', 'WFS', 'GETCAPABILITIES', 'WMS_CAPABILITIES', 'DEFAULT', 'GEORISQUES_SERVICES') and not name_clean.startswith('http'):
+                        return name_clean
         except Exception as e:
             QgsMessageLog.logMessage(f"Impossible d'extraire la couche WMS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         return None
@@ -1530,36 +1529,29 @@ class ImportManager:
             sep = "&" if "?" in raw_url else "?"
             capabilities_url = f"{raw_url}{sep}SERVICE=WFS&REQUEST=GetCapabilities" if "GetCapabilities" not in raw_url else raw_url
             with self._fetch_url(capabilities_url, timeout=10) as response:
-                xml_data = response.read()
-                root = ET.fromstring(xml_data)  # nosec B314
-
+                xml_text = response.read().decode('utf-8', errors='ignore')
+                ft_blocks = re.findall(r'<FeatureType(?:\s+[^>]*)?>([\s\S]*?)</FeatureType>', xml_text, re.IGNORECASE)
                 best_name = None
-                for ft in root.iter():
-                    if ft.tag.endswith('FeatureType'):
-                        name_elem = None
-                        title_elem = None
-                        for child in ft:
-                            if child.tag.endswith('Name'):
-                                name_elem = child.text.strip() if child.text else None
-                            elif child.tag.endswith('Title'):
-                                title_elem = child.text.strip() if child.text else None
-
-                        if name_elem and name_elem.upper() not in ('WFS', 'WMS', 'DEFAULT'):
-                            if not best_name:
-                                best_name = name_elem
-                            if search_title and title_elem and (search_title.lower() in title_elem.lower() or title_elem.lower() in search_title.lower()):
-                                return name_elem
-
+                for block in ft_blocks:
+                    name_match = re.search(r'<Name(?:\s+[^>]*)?>\s*([^<]+?)\s*</Name>', block, re.IGNORECASE)
+                    title_match = re.search(r'<Title(?:\s+[^>]*)?>\s*([^<]+?)\s*</Title>', block, re.IGNORECASE)
+                    n = name_match.group(1).strip() if name_match else None
+                    t = title_match.group(1).strip() if title_match else None
+                    if n and n.upper() not in ('WFS', 'WMS', 'DEFAULT'):
+                        if not best_name:
+                            best_name = n
+                        if search_title and t and (search_title.lower() in t.lower() or t.lower() in search_title.lower()):
+                            return n
                 if best_name:
                     return best_name
 
-                for elem in root.iter():
-                    if elem.tag.endswith('Name') and elem.text and elem.text.strip():
-                        name = elem.text.strip()
-                        if name.upper() not in ('WFS', 'WMS', 'GETCAPABILITIES', 'WFS_CAPABILITIES', 'DEFAULT') and not name.startswith('http'):
-                            return name
+                all_names = re.findall(r'<Name(?:\s+[^>]*)?>\s*([^<]+?)\s*</Name>', xml_text, re.IGNORECASE)
+                for name in all_names:
+                    n_clean = name.strip()
+                    if n_clean.upper() not in ('WFS', 'WMS', 'GETCAPABILITIES', 'WFS_CAPABILITIES', 'DEFAULT') and not n_clean.startswith('http'):
+                        return n_clean
         except Exception as e:
-            QgsMessageLog.logMessage(f"Impossible d'extraire la couche WFS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
+            QgsMessageLog.logMessage(f"Impossible d'extraire le FeatureType WFS: {e}", "OpenGeoDataFR", Qgis.MessageLevel.Warning)
         return None
 
     def _import_wms_layer(self, item, target_crs=None, territory_filter=None):
@@ -1622,13 +1614,35 @@ class ImportManager:
         if not layer_name:
             layer_name = self._discover_wms_layer_name(raw_url)
 
-        if not layer_name:
+        candidate_layer_names = [layer_name] if layer_name else []
+        title_lower = (item.title or "").lower()
+
+        # Fallbacks et résolution automatique pour Géorisques
+        if 'georisques' in clean_url.lower() or 'georisques' in raw_url.lower():
+            if any(k in title_lower or k in str(layer_name).lower() for k in ('pprn', 'inond', 'eaip', 'prevention')):
+                for cand in ('PPRN_ZONE_INOND', 'PPRN_PERIMETRE_INOND', 'PPRN_INOND', 'MASQ_EAIP'):
+                    if cand not in candidate_layer_names:
+                        candidate_layer_names.append(cand)
+            elif any(k in title_lower or k in str(layer_name).lower() for k in ('argile', 'alearg', 'rga')):
+                for cand in ('ALEARG_REALISE', 'ALEARG', 'ALEARG_REALISE_PE'):
+                    if cand not in candidate_layer_names:
+                        candidate_layer_names.append(cand)
+            elif 'mvt' in title_lower or 'mouvement' in title_lower:
+                if 'MVT_LOCALISE' not in candidate_layer_names:
+                    candidate_layer_names.append('MVT_LOCALISE')
+            elif 'cavite' in title_lower:
+                if 'CAVITE_LOCALISEE' not in candidate_layer_names:
+                    candidate_layer_names.append('CAVITE_LOCALISEE')
+            else:
+                for cand in ('MASQ_EAIP', 'PPRN_ZONE_INOND', 'ALEARG_REALISE'):
+                    if cand not in candidate_layer_names:
+                        candidate_layer_names.append(cand)
+
+        if not candidate_layer_names:
             if 'geopf' in raw_url or 'geoportail' in raw_url:
-                layer_name = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS" if "cadastre" in item.title.lower() else "document"
-            elif 'georisques' in raw_url:
-                layer_name = "ALEARG" if "argile" in item.title.lower() else "MASQ_EAIP"
+                candidate_layer_names = ["CADASTRALPARCELS.PARCELLAIRE_EXPRESS" if "cadastre" in title_lower else "document"]
             elif 'brgm' in raw_url:
-                layer_name = "SCAN_D_GEOL50" if "geol" in item.title.lower() else "GEOLOGIE"
+                candidate_layer_names = ["SCAN_D_GEOL50" if "geol" in title_lower else "GEOLOGIE"]
             else:
                 return False, f"Impossible de déterminer le nom de la couche WMS pour : {raw_url}"
 
@@ -1637,10 +1651,10 @@ class ImportManager:
 
         if 'data.geopf.fr' in clean_url:
             raster_indicators = ('PARCELLAIRE_EXPRESS', 'CADASTRALPARCELS', 'ORTHOIMAGERY', 'ORTHOPHOTOS', 'PLANIGN', 'MAPS', 'ELEVATION', 'SHADOW', 'CONTOUR')
-            if any(ind in layer_name.upper() for ind in raster_indicators):
+            if any(ind in candidate_layer_names[0].upper() for ind in raster_indicators):
                 if "https://data.geopf.fr/wms-r/ows" not in candidate_urls:
                     candidate_urls.insert(0, "https://data.geopf.fr/wms-r/ows")
-            elif any(ind in layer_name.lower() for ind in ('document', 'zone_secteur', 'prescription')):
+            elif any(ind in candidate_layer_names[0].lower() for ind in ('document', 'zone_secteur', 'prescription')):
                 if "https://data.geopf.fr/wms-v/ows" not in candidate_urls:
                     candidate_urls.insert(0, "https://data.geopf.fr/wms-v/ows")
 
@@ -1654,18 +1668,19 @@ class ImportManager:
                 candidate_crs.append(default_c)
 
         for endpoint_url in candidate_urls:
-            for crs_code in candidate_crs:
-                uri = f"contextualWMSLegend=0&crs={crs_code}&dpiMode=7&featureCount=10&format=image/png&layers={layer_name}&styles=&url={urllib.parse.quote(endpoint_url, safe=':/?&=%-')}"
-                layer = QgsRasterLayer(uri, item.title, "wms")
+            for lyr_name in candidate_layer_names:
+                for crs_code in candidate_crs:
+                    uri = f"contextualWMSLegend=0&crs={crs_code}&dpiMode=7&featureCount=10&format=image/png&layers={lyr_name}&styles=&url={urllib.parse.quote(endpoint_url, safe=':/?&=%-')}"
+                    layer = QgsRasterLayer(uri, item.title, "wms")
 
-                if layer.isValid():
-                    final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
-                    self._add_layer_safely(final_layer)
+                    if layer.isValid():
+                        final_layer = self._apply_crs_and_filters(layer, item, target_crs=target_crs, territory_filter=territory_filter)
+                        self._add_layer_safely(final_layer)
 
-                    if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
-                        self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
+                        if territory_filter and str(territory_filter).lower() not in ("france", "toutes les échelles", "all"):
+                            self._create_and_add_wms_mask(item, territory_filter, raster_layer=final_layer)
 
-                    return True, f"Flux WMS '{item.title}' [{layer_name}, {crs_code}] ajouté avec succès."
+                        return True, f"Flux WMS '{item.title}' [{lyr_name}, {crs_code}] ajouté avec succès."
 
         return False, f"Impossible de se connecter au flux WMS : {clean_url}"
 
