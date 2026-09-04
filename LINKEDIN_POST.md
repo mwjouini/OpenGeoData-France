@@ -10,22 +10,22 @@ On va se le dire franchement : qui n'a jamais perdu 45 minutes sur QGIS à cherc
 Ou à télécharger un zip de 600 Mo sur data.gouv juste pour récupérer les parcelles d'une seule commune ?
 
 Entre :
-- les endpoints de l'IGN qui évoluent,
+- les adresses de la Géoplateforme qui bougent,
 - le Géoportail de l'Urbanisme qu'il faut aller fouiller à part,
 - les adresses BAN à géocoder dans un tableur,
-- et les flux Géorisques ou DREAL éparpillés sur 10 sites différents...
+- et les données DREAL ou Géorisques éparpillées sur 10 portails différents...
 
 On passe souvent plus de temps à chercher et nettoyer la donnée qu'à faire de la vraie analyse territoriale.
 
 C'est exactement pour ça que j'ai développé **OpenGeoData France**.
 
-L'idée de base est bête et méchante : 
-Vous restez dans QGIS. Vous ouvrez le panneau. Vous tapez ce que vous voulez. Vous cliquez. La couche est dans votre projet.
+L'idée est simple :  
+Vous restez dans QGIS. Vous ouvrez le panneau. Vous tapez ce que vous cherchez. Vous cliquez. La couche arrive dans votre canevas, directement projetée.
 
-Ce qu'on a mis sous le capot :
+Ce que vous y trouverez :
 
 1. Le Cadastre et la BAN en 1 clic
-Parcelles, bâti, sections du Parcellaire Express et points d'adresses. Fini les archives par département à dézipper.
+Parcelles, bâti, sections du Parcellaire Express et adresses BAN. Fini les archives départementales à dézipper à la main.
 
 2. Les documents d'urbanisme (GPU)
 Zonages, prescriptions et servitudes du Géoportail de l'Urbanisme chargés directement sur votre zone d'étude.
@@ -36,17 +36,20 @@ IGN, BRGM, INPN, INSEE, DREAL, réseaux de transport (GTFS, NeTEx, SNCF), bornes
 4. Le découpage territorial automatique
 Vous sélectionnez votre commune ou votre EPCI : le plugin découpe et cadre directement vos couches sur votre territoire. Plus besoin de créer un polygone de masque à la main.
 
-5. Les petits plus pour les curieux
-Les photos aériennes historiques de 1950-1965 pour comparer l'urbanisation en 2 secondes, et le radar de pluie en temps réel.
+5. Les petits plus utiles
+Les photos aériennes historiques de 1950-1965 pour comparer l'urbanisation en deux secondes, et le radar météo en direct.
 
-L'extension est 100 % gratuite, open-source, et compatible avec QGIS 3.22 jusqu'à QGIS 4.
+L'extension est 100 % gratuite, open-source, et compatible de QGIS 3.22 jusqu'à QGIS 4.
 
-👉 Le plugin est disponible sur le dépôt officiel QGIS (recherchez simplement "OpenGeoData France") et le code complet est ouvert sur GitHub :
+👉 Elle est disponible directement dans l'entrepôt officiel des extensions QGIS :
+Dans QGIS, allez dans le menu "Extensions" > "Installer/Gérer les extensions", cherchez simplement **"OpenGeoData France"** et cliquez sur Installer.
+
+Et pour les curieux ou contributeurs, le code source complet est ouvert sur GitHub :  
 https://github.com/mwjouini/OpenGeoData-France
 
-J'ai passé pas mal d'heures dessus pour que ce soit fluide, robuste et sans prise de tête pour les agents et les pros du SIG.
+J'ai passé pas mal de soirées dessus pour que ce soit fluide et sans prise de tête pour les agents et les pros du SIG.
 
-Testez-le dans vos projets du quotidien, poussez-le dans ses retranchements, et dites-moi en commentaire les couches ou fonctionnalités que vous aimeriez voir arriver !
+Testez-le dans vos dossiers du quotidien, poussez-le dans ses retranchements, et dites-moi en commentaire les couches ou fonctionnalités que vous aimeriez voir arriver !
 
 #QGIS #SIG #Geomatique #OpenData #DataGouv #Cartographie #Urbanisme #Territoires #Collectivites #OpenSource
 
@@ -77,8 +80,8 @@ Alors j'ai créé **OpenGeoData France**, un moteur de recherche et d'importatio
 - Découpage territorial instantané à la commune ou à l'intercommunalité.
 - Photos historiques 1950 et radar météo en direct.
 
-C'est open-source, gratuit, et déjà en ligne :
-👉 https://github.com/mwjouini/OpenGeoData-France
+C'est open-source, gratuit, et disponible directement dans l'entrepôt officiel QGIS (menu Extensions > Installer/Gérer les extensions > cherchez "OpenGeoData France").
+👉 Code source & dépôt GitHub : https://github.com/mwjouini/OpenGeoData-France
 
 Les collègues géomaticiens et urbanistes : faites le test aujourd'hui, vous ne reviendrez plus en arrière !
 
@@ -102,7 +105,7 @@ J'ai conçu **OpenGeoData France** pour régler une frustration universelle en c
 
 Que vous ayez besoin d'un zonage PLU, d'une parcelle cadastrale, d'un zonage ZNIEFF ou des bornes de recharge de votre département, tout est accessible dans une seule fenêtre.
 
-Le plugin est disponible gratuitement dans le gestionnaire d'extensions QGIS et sur GitHub :
+Le plugin est disponible directement dans l'entrepôt officiel des extensions QGIS (menu Extensions > Installer/Gérer les extensions) et le code source sur GitHub :
 https://github.com/mwjouini/OpenGeoData-France
 
 Prenez 2 minutes pour l'installer et partagez vos retours en commentaire !
